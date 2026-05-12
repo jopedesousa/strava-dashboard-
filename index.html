@@ -271,47 +271,51 @@ canvas { max-height: 200px !important; }
   </div>
   <div class="connect-card">
     <div class="connect-title">Connect Strava</div>
-    <div class="connect-desc">Set up once — credentials are saved so future logins are fully automatic.</div>
+    <div class="connect-desc">One-time setup. After connecting, this page remembers you permanently.</div>
     <div id="saved-notice"></div>
 
     <div class="step">
       <div class="step-num">1</div>
       <div style="flex:1">
-        <div class="step-title">Strava API App (one-time only)</div>
-        <div class="step-desc">Go to <a href="https://www.strava.com/settings/api" target="_blank" style="color:var(--accent);font-weight:600">strava.com/settings/api</a> → create an app → set <strong>"Authorization Callback Domain"</strong> to <code style="background:var(--bg2);padding:2px 6px;border-radius:4px;font-size:11px">localhost</code></div>
+        <div class="step-title">Create a Strava API App (once only)</div>
+        <div class="step-desc">
+          Go to <a href="https://www.strava.com/settings/api" target="_blank" style="color:var(--accent)">strava.com/settings/api</a> → create an app.<br>
+          Set <strong>Authorization Callback Domain</strong> to:<br>
+          <code id="callback-domain" style="background:var(--bg2);padding:3px 8px;border-radius:4px;font-size:12px;display:inline-block;margin-top:4px;user-select:all">loading...</code>
+        </div>
       </div>
     </div>
 
     <div class="step">
       <div class="step-num">2</div>
       <div style="flex:1">
-        <div class="step-title">Client ID &amp; Secret</div>
-        <input class="field" id="client-id" placeholder="Client ID (e.g. 228655)" oninput="updateOAuthLink()">
+        <div class="step-title">Enter Client ID &amp; Secret</div>
+        <input class="field" id="client-id" placeholder="Client ID (numbers)" oninput="updateCallbackDomain()">
         <input class="field" id="client-secret" type="password" placeholder="Client Secret" style="margin-top:6px">
-        <label class="checkbox-row"><input type="checkbox" id="save-creds" checked> Remember for next time</label>
+        <label class="checkbox-row"><input type="checkbox" id="save-creds" checked> Remember me</label>
       </div>
     </div>
 
     <div class="step">
       <div class="step-num">3</div>
       <div style="flex:1">
-        <div class="step-title">Authorise &amp; paste the code</div>
-        <div class="step-desc" style="margin-bottom:10px">Click the link below — it opens Strava in a new tab. After you click Authorize, copy the <strong>code=</strong> value from the URL your browser redirects to.</div>
-        <button onclick="doOAuth()"
-           style="display:block;width:100%;background:var(--accent);color:#fff;text-align:center;padding:12px;border-radius:8px;font-size:14px;font-weight:600;border:none;cursor:pointer;margin-bottom:12px;transition:opacity .15s"
-           onmouseover="this.style.opacity='.85'" onmouseout="this.style.opacity='1'">
-          Open Strava Authorisation →
-        </button>
-        <div style="background:var(--bg2);border-radius:6px;padding:8px 12px;font-size:11px;color:var(--text3);font-family:monospace;margin-bottom:10px;word-break:break-all">
-          After authorising, you'll be redirected back here automatically with the code pre-filled. If not, copy the <strong style="color:var(--text)">code=</strong> value from the URL and paste it below.
+        <div class="step-title">Connect — tap this link</div>
+        <div class="step-desc" style="margin-bottom:10px">
+          Tap the orange link below. Strava opens, you authorise, then you're redirected back here automatically with your dashboard loaded.
         </div>
-        <input class="field" id="auth-code" placeholder="Code auto-fills if using Apps Script — or paste manually">
+        <a id="oauth-link" href="#"
+           style="display:block;background:var(--accent);color:#fff;text-align:center;padding:13px;border-radius:8px;font-size:14px;font-weight:600;text-decoration:none;margin-bottom:8px"
+           onclick="return onAuthLinkClick(this)">
+          Connect with Strava →
+        </a>
+        <div style="font-size:11px;color:var(--text4);text-align:center">
+          After connecting, you'll come back here with your dashboard loaded automatically.
+        </div>
       </div>
     </div>
 
-    <button class="btn-primary" style="margin-top:16px" onclick="exchangeToken()">Load My Dashboard →</button>
     <div id="connect-error"></div>
-    <div class="connect-note" style="margin-top:10px">Runs entirely in your browser. Nothing sent to any server.</div>
+    <div class="connect-note" style="margin-top:10px">Credentials saved in this browser only. Nothing sent to any server.</div>
   </div>
 
   <button class="btn-ghost" onclick="loadDemo()">Preview with demo data</button>
@@ -605,91 +609,61 @@ function showErr(msg, loading=false){
 }
 
 function getRedirectURI(){
-  const loc = window.location.href;
-  // If running on Apps Script (/exec URL), use it as redirect
-  if(loc.includes('script.google.com') || loc.includes('googleusercontent.com')){
-    // Strip query params to get the base /exec URL
-    return loc.split('?')[0];
-  }
-  // Fallback for local file
-  return 'http://localhost';
+  // Always use the current page URL (stripped of query/hash) as redirect URI
+  // Works for: GitHub Pages, Netlify, local file, any host
+  return window.location.origin + window.location.pathname;
 }
 
+
 function buildOAuthURL(cid){
+  const redirect = getRedirectURI();
   return 'https://www.strava.com/oauth/authorize'
-    + '?client_id=' + encodeURIComponent(cid)
+    + '?client_id='      + encodeURIComponent(cid)
     + '&response_type=code'
-    + '&redirect_uri=' + encodeURIComponent(getRedirectURI())
+    + '&redirect_uri='   + encodeURIComponent(redirect)
     + '&approval_prompt=auto'
     + '&scope=read,activity:read_all,profile:read_all';
 }
 
-function updateOAuthLink(){ /* no-op — kept for compatibility */ }
-
-function saveCredsBeforeAuth(e){
-  const cid = (document.getElementById('client-id')?.value||'').trim();
-  const cs  = (document.getElementById('client-secret')?.value||'').trim();
-  if(cid) saveLocal('str_cid', cid);
-  if(cs)  saveLocal('str_cs', cs);
+function updateCallbackDomain(){
+  const el = document.getElementById('callback-domain');
+  if(el) el.textContent = window.location.hostname || 'localhost';
+  updateAuthLink();
 }
 
-function doOAuth(){
-  const cid = (document.getElementById('client-id')?.value||'').trim();
-  const cs  = (document.getElementById('client-secret')?.value||'').trim();
-  if(!cid){ showErr('Enter your Client ID first.'); return; }
-  if(!cs){  showErr('Enter your Client Secret first.'); return; }
-
-  // Save locally
-  saveLocal('str_cid', cid);
-  saveLocal('str_cs', cs);
-  sessionStorage.setItem('str_cid', cid);
-  sessionStorage.setItem('str_cs', cs);
-
-  // If running inside Google Apps Script, use server-side to get the URL
-  // then navigate the top-level window (breaks out of iframe)
-  if (typeof google !== 'undefined' && google.script && google.script.run) {
-    showErr('Saving credentials…', true);
-    google.script.run
-      .withSuccessHandler(function(result){
-        if(result && result.url){
-          // Navigate top-level window to Strava auth page
-          window.top.location.href = result.url;
-        } else {
-          showErr('Could not build auth URL. Check Client ID is correct.');
-        }
-      })
-      .withFailureHandler(function(err){
-        showErr('Error: ' + err.message);
-      })
-      .withUserObject({cid, cs})
-      .saveCredentials(cid, cs);
-    // Chain: after saving creds, get the URL
-    // Use a two-step approach
-    google.script.run
-      .withSuccessHandler(function(res){
-        if(res && res.url){
-          window.top.location.href = res.url;
-        } else if(res && res.error === 'no_cid'){
-          // Retry after save completes
-          setTimeout(function(){
-            google.script.run
-              .withSuccessHandler(function(r2){
-                if(r2 && r2.url) window.top.location.href = r2.url;
-                else showErr('Could not get OAuth URL from server.');
-              })
-              .withFailureHandler(function(e){ showErr(e.message); })
-              .getOAuthURL();
-          }, 800);
-        }
-      })
-      .withFailureHandler(function(err){ showErr('Server error: ' + err.message); })
-      .getOAuthURL();
+function updateAuthLink(){
+  const cid  = (document.getElementById('client-id')?.value||'').trim();
+  const link = document.getElementById('oauth-link');
+  if(!link) return;
+  if(cid){
+    link.href = buildOAuthURL(cid);
+    link.style.opacity = '1';
+    link.style.pointerEvents = 'auto';
   } else {
-    // Fallback: direct window.open (works when opening as local file)
-    window.open(buildOAuthURL(cid), '_blank');
+    link.href = '#';
+    link.style.opacity = '0.5';
+    link.style.pointerEvents = 'none';
   }
 }
+
+function onAuthLinkClick(linkEl){
+  const cid = (document.getElementById('client-id')?.value||'').trim();
+  const cs  = (document.getElementById('client-secret')?.value||'').trim();
+  if(!cid){ showErr('Enter your Client ID first.'); return false; }
+  if(!cs){  showErr('Enter your Client Secret first.'); return false; }
+  // Save creds before navigating away
+  saveLocal('str_cid', cid);
+  saveLocal('str_cs',  cs);
+  sessionStorage.setItem('str_cid', cid);
+  sessionStorage.setItem('str_cs',  cs);
+  // Set correct href and let browser follow it naturally
+  linkEl.href = buildOAuthURL(cid);
+  return true;
+}
+
+function doOAuth(){ onAuthLinkClick(document.getElementById('oauth-link')); }
 function startOAuth(){ doOAuth(); }
+
 
 
 async function exchangeToken(){
@@ -1784,45 +1758,58 @@ function avgPaceOne(a){const s=a.moving_time/(a.distance/1000);return`${Math.flo
 // INIT
 // ══════════════════════════════════════════
 window.addEventListener('DOMContentLoaded', async ()=>{
-  // ── Method 1: token injected by Apps Script server-side ──
-  if(window.__STR_TOKEN__ && window.__STR_ATH__){
-    try{
-      const athlete = JSON.parse(window.__STR_ATH__);
-      if(window.__STR_CID__) saveLocal('str_cid', window.__STR_CID__);
-      saveLocal('str_tok', window.__STR_TOKEN__);
-      await launch(window.__STR_TOKEN__, athlete);
-      return;
-    }catch(e){ console.warn('Injected token failed:', e); }
-  }
+  // Show correct callback domain in UI
+  updateCallbackDomain();
 
-  // ── Method 2: token passed via URL hash fragment from Apps Script redirect ──
-  // e.g. https://...drive.google.com/...#tok=xxx&ath={...}&cid=yyy
-  if(window.location.hash){
-    try{
-      const hash = new URLSearchParams(window.location.hash.slice(1));
-      const tok  = hash.get('tok');
-      const ath  = hash.get('ath');
-      const cid  = hash.get('cid');
-      if(tok && ath){
-        const athlete = JSON.parse(decodeURIComponent(ath));
-        if(cid) saveLocal('str_cid', decodeURIComponent(cid));
-        saveLocal('str_tok', tok);
-        saveLocal('str_ath', JSON.stringify(athlete));
-        // Clean hash from URL
-        window.history.replaceState({}, '', window.location.pathname + window.location.search);
-        await launch(tok, athlete);
-        return;
-      }
-    }catch(e){ console.warn('Hash token failed:', e); }
-  }
-
-  // ── Method 3: code in URL query params (manual paste fallback) ──
+  // ── Check for OAuth code in URL (Strava redirected back here) ──
   const urlParams = new URLSearchParams(window.location.search);
-  const urlCode = urlParams.get('code');
-  if(urlCode){
-    const codeEl = document.getElementById('auth-code');
-    if(codeEl) codeEl.value = urlCode;
+  const code = urlParams.get('code');
+  if(code){
+    // Clean the URL immediately
     window.history.replaceState({}, '', window.location.pathname);
+    // Retrieve saved creds
+    const cid = getLocal('str_cid') || sessionStorage.getItem('str_cid') || '';
+    const cs  = getLocal('str_cs')  || sessionStorage.getItem('str_cs')  || '';
+    if(!cid || !cs){
+      // Creds lost — pre-fill what we have and show error
+      document.getElementById('connect-screen').style.display = 'flex';
+      showErr('Almost there! Your Client ID and Secret were cleared during redirect. Enter them again and paste this code: ' + code);
+      const codeHint = document.createElement('input');
+      codeHint.className = 'field';
+      codeHint.value = code;
+      codeHint.readOnly = true;
+      codeHint.style.marginTop = '8px';
+      document.getElementById('connect-error').appendChild(codeHint);
+      return;
+    }
+    // Exchange code for token
+    document.getElementById('connect-screen').style.display = 'flex';
+    document.getElementById('saved-notice').innerHTML = '<div class="saved-pill">✓ Got the code — connecting to Strava...</div>';
+    try {
+      const body = 'client_id='     + encodeURIComponent(cid)
+                 + '&client_secret=' + encodeURIComponent(cs)
+                 + '&code='          + encodeURIComponent(code)
+                 + '&grant_type=authorization_code'
+                 + '&redirect_uri='  + encodeURIComponent(getRedirectURI());
+      const r = await fetch('https://www.strava.com/oauth/token', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+        body: body
+      });
+      const text = await r.text();
+      const d = JSON.parse(text);
+      if(!d.access_token) throw new Error(d.message || text.slice(0,120));
+      saveLocal('str_tok',     d.access_token);
+      saveLocal('str_refresh', d.refresh_token || '');
+      saveLocal('str_expires', String(d.expires_at || 0));
+      saveLocal('str_ath',     JSON.stringify(d.athlete));
+      saveLocal('str_cid',     cid);
+      saveLocal('str_cs',      cs);
+      await launch(d.access_token, d.athlete);
+    } catch(err) {
+      showErr('Token exchange failed: ' + err.message);
+    }
+    return;
   }
 
   // Load from embedded script tag first (works on file://)

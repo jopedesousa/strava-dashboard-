@@ -6,6 +6,8 @@
 <title>STR/ — Activity Dashboard</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <style>
 /* ─── APPLE-MINIMAL DESIGN SYSTEM ─── */
 :root {
@@ -84,7 +86,11 @@ body { background: var(--bg2); color: var(--text); font-family: 'Inter', -apple-
 .app-body { display: grid; grid-template-columns: 200px 1fr; min-height: calc(100vh - 52px); }
 
 /* ─── SIDEBAR ─── */
-.sidebar { background: var(--surface); border-right: 1px solid var(--border-light); padding: 16px 0; position: sticky; top: 52px; height: calc(100vh - 52px); overflow-y: auto; }
+.sidebar { background: var(--surface); border-right: 1px solid var(--border-light); padding: 16px 0; position: sticky; top: 52px; height: calc(100vh - 52px); overflow-y: auto; transition: width .25s ease; overflow-x: hidden; width: 200px; }
+.sidebar.collapsed { width: 0; padding: 0; border-right: none; }
+.sidebar-toggle { position: fixed; top: 50%; left: 200px; transform: translateY(-50%); z-index: 200; background: var(--surface); border: 1px solid var(--border-light); border-left: none; border-radius: 0 6px 6px 0; padding: 8px 4px; cursor: pointer; font-size: 11px; color: var(--text3); transition: left .25s ease; writing-mode: vertical-rl; letter-spacing: 1px; box-shadow: 2px 0 6px rgba(0,0,0,.06); }
+.sidebar-toggle:hover { color: var(--accent); }
+.sidebar.collapsed ~ * .sidebar-toggle, .app-body.sb-collapsed .sidebar-toggle { left: 0; }
 .sb-section { padding: 0 12px; margin-bottom: 20px; }
 .sb-heading { font-size: 11px; font-weight: 600; color: var(--text4); text-transform: uppercase; letter-spacing: .8px; margin-bottom: 8px; padding: 0 4px; }
 .filter-pill { display: flex; align-items: center; gap: 8px; padding: 7px 8px; border-radius: var(--radius-sm); cursor: pointer; transition: background .1s; font-size: 13px; color: var(--text2); }
@@ -334,7 +340,8 @@ canvas { max-height: 200px !important; }
 
   <div class="app-body">
     <!-- SIDEBAR -->
-    <div class="sidebar">
+    <button class="sidebar-toggle" id="sb-toggle" onclick="toggleSidebar()" title="Toggle sidebar">◀ filters</button>
+    <div class="sidebar" id="sidebar">
       <div class="sb-section">
         <div class="sb-heading">Sport</div>
         <div id="sport-filters"></div>
@@ -354,9 +361,9 @@ canvas { max-height: 200px !important; }
     <!-- CONTENT -->
     <div class="content">
       <div class="tabs">
-        <button class="tab active" onclick="switchTab('overview',this)">Overview</button>
-        <button class="tab" onclick="switchTab('week',this)">This Week</button>
-        <button class="tab" onclick="switchTab('ytd',this)">Year to Date</button>
+        <button class="tab active" onclick="switchTab('week',this)">This Week</button>
+        <button class="tab" onclick="switchTab('overview',this)">Overview</button>
+        <button class="tab" onclick="switchTab('ytd',this)">YTD</button>
         <button class="tab" onclick="switchTab('trends',this)">Trends</button>
         <button class="tab" onclick="switchTab('activities',this)">Activities</button>
         <button class="tab" onclick="switchTab('milestones',this)">Milestones</button>
@@ -365,8 +372,11 @@ canvas { max-height: 200px !important; }
         <button class="tab" onclick="switchTab('insights',this)">AI Insights</button>
       </div>
 
+      <!-- THIS WEEK (default active) -->
+      <div class="tab-content active" id="tab-week"><div id="week-content"></div></div>
+
       <!-- OVERVIEW -->
-      <div class="tab-content active" id="tab-overview">
+      <div class="tab-content" id="tab-overview">
         <div class="time-filter">
           <button class="tbn active" onclick="setRange(4,this)">4W</button>
           <button class="tbn" onclick="setRange(13,this)">3M</button>
@@ -379,18 +389,14 @@ canvas { max-height: 200px !important; }
           <div class="chart-header"><div class="chart-title">Weekly Volume</div><div class="chart-meta" id="chart-meta"></div></div>
           <div class="bar-chart" id="bar-chart"></div>
         </div>
-        <div id="overview-yoy" style="margin-bottom:16px"></div>
-        <div class="chart-card">
-          <div class="chart-header"><div class="chart-title">Activity Calendar — last 20 weeks</div></div>
-          <div class="cal-wrap" id="cal-grid"></div>
-        </div>
+        <div id="overview-gear" style="margin-top:16px"></div>
       </div>
 
-      <!-- THIS WEEK -->
-      <div class="tab-content" id="tab-week"><div id="week-content"></div></div>
-
       <!-- YTD -->
-      <div class="tab-content" id="tab-ytd"><div id="ytd-content"></div></div>
+      <div class="tab-content" id="tab-ytd">
+        <div id="ytd-content"></div>
+        <div id="ytd-yoy" style="margin-top:20px"></div>
+      </div>
 
       <!-- TRENDS -->
       <div class="tab-content" id="tab-trends">
@@ -453,21 +459,10 @@ canvas { max-height: 200px !important; }
       <div class="tab-content" id="tab-places">
         <div class="section-title">Where I've Been Active</div>
         <div style="display:flex;gap:8px;align-items:center;margin-bottom:16px;flex-wrap:wrap">
-          <input class="search-field" id="places-search" placeholder="Filter by country…" oninput="renderPlaces()" style="max-width:240px">
+          <input class="search-field" id="places-search" placeholder="Filter by country or city…" oninput="renderPlaces()" style="max-width:280px">
           <span id="places-meta" style="font-size:12px;color:var(--text3)"></span>
         </div>
-        <div id="gmap-wrap" style="width:100%;height:480px;border-radius:12px;overflow:hidden;border:1px solid var(--border-light);margin-bottom:16px;background:var(--bg2);display:flex;align-items:center;justify-content:center">
-          <div id="gmap-container" style="width:100%;height:100%"></div>
-          <div id="gmap-placeholder" style="text-align:center;color:var(--text3);font-size:13px;padding:24px;display:none">
-            <div style="font-size:32px;margin-bottom:8px">🗺️</div>
-            <div>Map requires a Google Maps API key.</div>
-            <div style="font-size:12px;margin-top:4px">Add your key to the input below to enable the live map.</div>
-          </div>
-        </div>
-        <div style="display:flex;gap:8px;align-items:center;margin-bottom:20px;background:var(--bg2);padding:12px 16px;border-radius:var(--radius-sm);flex-wrap:wrap">
-          <span style="font-size:12px;color:var(--text3)">Google Maps API key (optional — for live map):</span>
-          <input class="search-field" id="gmaps-key" placeholder="AIza..." style="flex:1;min-width:200px;font-family:monospace;font-size:12px" oninput="initGoogleMap()">
-        </div>
+        <div id="osm-map" style="width:100%;height:480px;border-radius:12px;overflow:hidden;border:1px solid var(--border-light);margin-bottom:16px;z-index:0"></div>
         <div class="geo-grid" id="geo-content"></div>
       </div>
 
@@ -848,9 +843,9 @@ function renderOverviewYOY(){
   const cutoff4w = new Date(now - 28*86400000);
   const cutoff4w_ly = new Date(oneYearAgo - 28*86400000);
 
-  const thisWindow = allActivities.filter(a => new Date(a.start_date_local) >= cutoff4w);
+  const thisWindow = allActivities.filter(a => parseLocal(a.start_date_local) >= cutoff4w);
   const lastYrWindow = allActivities.filter(a => {
-    const d = new Date(a.start_date_local);
+    const d = parseLocal(a.start_date_local);
     return d >= cutoff4w_ly && d <= oneYearAgo;
   });
 
@@ -885,7 +880,7 @@ function renderOverviewYOY(){
     ? `<span style="color:var(--green)">↑${diffActs} more</span>`
     : `<span style="color:var(--red)">↓${Math.abs(diffActs)} fewer</span>`;
 
-  document.getElementById('overview-yoy').innerHTML = `
+  const _yoyEl=document.getElementById('ytd-yoy')||document.getElementById('overview-yoy');if(_yoyEl)_yoyEl.innerHTML = `
     <div class="chart-card" style="padding:18px">
       <div class="chart-header" style="margin-bottom:12px">
         <div class="chart-title">This period vs one year ago</div>
@@ -911,17 +906,18 @@ function renderOverviewYOY(){
 // THIS WEEK TAB
 // ══════════════════════════════════════════
 async function renderWeek(){
-  const now = new Date(); now.setHours(23,59,59,999);
-  // Week starts Monday
-  const dow = now.getDay(); // 0=Sun
+  const today = new Date(); today.setHours(0,0,0,0);
+  // Week starts Monday — calculate correctly from today (not end-of-day)
+  const dow = today.getDay(); // 0=Sun,1=Mon,...
   const mondayOffset = dow === 0 ? 6 : dow - 1;
-  const weekStart = new Date(now); weekStart.setDate(now.getDate() - mondayOffset); weekStart.setHours(0,0,0,0);
+  const weekStart = new Date(today); weekStart.setDate(today.getDate() - mondayOffset);
+  const now = new Date(); now.setHours(23,59,59,999);
 
-  const thisWeek = allActivities.filter(a => new Date(a.start_date_local) >= weekStart);
+  const thisWeek = allActivities.filter(a => parseLocal(a.start_date_local) >= weekStart);
   const prevWeeks = [-1,-2,-3].map(w => {
     const s = new Date(weekStart); s.setDate(s.getDate() + w*7);
     const e = new Date(s); e.setDate(s.getDate() + 7);
-    return allActivities.filter(a => { const d=new Date(a.start_date_local); return d>=s&&d<e; });
+    return allActivities.filter(a => { const d=parseLocal(a.start_date_local); return d>=s&&d<e; });
   });
 
   const weekDays = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
@@ -939,13 +935,14 @@ async function renderWeek(){
       return 0; // filled below
     });
   });
-  // Better: compute per weekday
+  // Compute minutes per day-of-week for each week set
   const dayMins = weekSets.map((wk, wi) => {
-    const startOfThisWk = new Date(weekStart); startOfThisWk.setDate(weekStart.getDate() - wi*7);
-    return Array.from({length:7}, (_,di) => {
-      const day = new Date(startOfThisWk); day.setDate(startOfThisWk.getDate()+di);
-      const dayStr = day.toISOString().split('T')[0];
-      return wk.filter(a=>a.start_date_local.startsWith(dayStr)).reduce((s,a)=>s+a.moving_time/60,0);
+    const wkMonday = new Date(weekStart); wkMonday.setDate(weekStart.getDate() - wi*7);
+    return Array.from({length:7}, (_, di) => {
+      const day = new Date(wkMonday.getFullYear(), wkMonday.getMonth(), wkMonday.getDate() + di);
+      const dayStr = day.getFullYear()+'-'+String(day.getMonth()+1).padStart(2,'0')+'-'+String(day.getDate()).padStart(2,'0');
+      return wk.filter(a => a.start_date_local.startsWith(dayStr))
+               .reduce((s,a) => s + a.moving_time/60, 0);
     });
   });
 
@@ -953,6 +950,17 @@ async function renderWeek(){
   const twDist = thisWeek.reduce((s,a)=>s+a.distance,0)/1000;
   const twTime = thisWeek.reduce((s,a)=>s+a.moving_time,0)/3600;
   const twElev = thisWeek.reduce((s,a)=>s+a.total_elevation_gain,0);
+  const lastWk = prevWeeks[0];
+  const lwDist = lastWk.reduce((s,a)=>s+a.distance,0)/1000;
+  const lwTime = lastWk.reduce((s,a)=>s+a.moving_time,0)/3600;
+  const lwElev = lastWk.reduce((s,a)=>s+a.total_elevation_gain,0);
+  function wkVs(curr,prev,decimals=0){
+    if(!prev) return '';
+    const diff=curr-prev;
+    const sign=diff>=0?'+':'';
+    const cls=diff>=0?'color:var(--green)':'color:var(--red)';
+    return `<div style="font-size:11px;${cls};margin-top:3px">${sign}${diff.toFixed(decimals)} vs last wk</div>`;
+  }
 
   // Sport chips
   const chips = Object.keys(SPORTS).filter(s=>s!=='Other').map(s => {
@@ -968,11 +976,11 @@ async function renderWeek(){
     </div>`;
   }).join('');
 
-  // Daily activities list
+  // Daily activities list — build from weekStart (Monday)
   const daysList = Array.from({length:7},(_,i)=>{
-    const day = new Date(weekStart); day.setDate(weekStart.getDate()+i);
-    const dayStr = day.toISOString().split('T')[0];
-    const dayActs = thisWeek.filter(a=>a.start_date_local.startsWith(dayStr));
+    const day = new Date(weekStart.getFullYear(), weekStart.getMonth(), weekStart.getDate()+i);
+    const dayStr = day.getFullYear()+'-'+String(day.getMonth()+1).padStart(2,'0')+'-'+String(day.getDate()).padStart(2,'0');
+    const dayActs = thisWeek.filter(a=>localDateStr(a.start_date_local)===dayStr);
     const isToday = day.toDateString()===new Date().toDateString();
     if(!dayActs.length) return `<div style="padding:10px 0;border-bottom:1px solid var(--border-light);display:flex;gap:12px;align-items:center;opacity:.4">
       <div style="width:72px;font-size:12px;color:var(--text3);font-weight:${isToday?700:400}">${weekDays[i]} ${day.getDate()}</div>
@@ -1000,10 +1008,10 @@ async function renderWeek(){
       <div style="font-size:13px;color:var(--text3)">${weekStart.toLocaleDateString('en-GB',{day:'numeric',month:'short'})} – ${now.toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric'})}</div>
     </div>
     <div class="ytd-grid" style="margin-bottom:16px">
-      <div class="ytd-card"><div class="ytd-label">Activities</div><div class="ytd-val">${thisWeek.length}</div></div>
-      <div class="ytd-card"><div class="ytd-label">Distance</div><div class="ytd-val">${twDist.toFixed(1)}<span class="ytd-unit">km</span></div></div>
-      <div class="ytd-card"><div class="ytd-label">Time</div><div class="ytd-val">${twTime.toFixed(1)}<span class="ytd-unit">hrs</span></div></div>
-      <div class="ytd-card"><div class="ytd-label">Elevation</div><div class="ytd-val">${twElev.toFixed(0)}<span class="ytd-unit">m</span></div></div>
+      <div class="ytd-card"><div class="ytd-label">Activities</div><div class="ytd-val">${thisWeek.length}</div>${wkVs(thisWeek.length,lastWk.length)}</div>
+      <div class="ytd-card"><div class="ytd-label">Distance</div><div class="ytd-val">${twDist.toFixed(1)}<span class="ytd-unit">km</span></div>${wkVs(twDist,lwDist,1)}</div>
+      <div class="ytd-card"><div class="ytd-label">Time</div><div class="ytd-val">${twTime.toFixed(1)}<span class="ytd-unit">hrs</span></div>${wkVs(twTime,lwTime,1)}</div>
+      <div class="ytd-card"><div class="ytd-label">Elevation</div><div class="ytd-val">${twElev.toFixed(0)}<span class="ytd-unit">m</span></div>${wkVs(twElev,lwElev,0)}</div>
     </div>
     <div class="sport-chips" style="margin-bottom:20px">${chips||'<div style="color:var(--text3);font-size:13px">No activities recorded this week yet.</div>'}</div>
     <div class="chart-card" style="margin-bottom:16px">
@@ -1090,117 +1098,14 @@ ${summary}`}]
 // ══════════════════════════════════════════
 let gmapInstance = null, gmapMarkers = [], gmapLoaded = false;
 
-function initGoogleMap(){
-  const key = document.getElementById('gmaps-key')?.value?.trim();
-  if(!key){ renderPlaces(); return; }
-  if(gmapLoaded){ renderPlaces(); return; }
-  // Load Google Maps script dynamically
-  const script = document.createElement('script');
-  script.src = `https://maps.googleapis.com/maps/api/js?key=${key}&callback=onGoogleMapsLoaded`;
-  script.async = true; script.defer = true;
-  window.onGoogleMapsLoaded = () => { gmapLoaded = true; renderPlaces(); };
-  document.head.appendChild(script);
-}
 
-function buildGoogleMap(activities, filterQ){
-  const key = document.getElementById('gmaps-key')?.value?.trim();
-  const wrap = document.getElementById('gmap-container');
-  const placeholder = document.getElementById('gmap-placeholder');
-  if(!wrap) return;
 
-  // Filter activities with coordinates
-  let acts = activities.filter(a => a.start_latlng && a.start_latlng[0] && a.start_latlng[1]);
-  if(filterQ) acts = acts.filter(a => {
-    const loc = extractLocation(a);
-    return (loc.country||'').toLowerCase().includes(filterQ) || (loc.city||'').toLowerCase().includes(filterQ);
-  });
 
-  if(!key || !gmapLoaded){
-    // Show fallback SVG map
-    if(placeholder) placeholder.style.display='none';
-    wrap.innerHTML = buildFallbackMap(acts);
-    return;
-  }
 
-  // Google Maps
-  if(placeholder) placeholder.style.display='none';
-  wrap.innerHTML='';
-  if(!gmapInstance){
-    const center = acts.length ? {lat:acts[0].start_latlng[0],lng:acts[0].start_latlng[1]} : {lat:51.5,lng:-0.1};
-    gmapInstance = new google.maps.Map(wrap, {
-      center, zoom:5,
-      styles:[{featureType:'all',elementType:'labels.icon',stylers:[{visibility:'off'}]},
-              {featureType:'administrative',elementType:'geometry',stylers:[{visibility:'off'}]}],
-      mapTypeControl:false, streetViewControl:false,
-    });
-  }
-  // Clear old markers
-  gmapMarkers.forEach(m=>m.setMap(null)); gmapMarkers=[];
-  // Cluster by proximity — just add all markers for now
-  acts.slice(0,1000).forEach(a=>{
-    const info = sp(a.sport);
-    const marker = new google.maps.Marker({
-      position:{lat:a.start_latlng[0],lng:a.start_latlng[1]},
-      map:gmapInstance,
-      title:a.name,
-      icon:{path:google.maps.SymbolPath.CIRCLE,scale:5,fillColor:info.color,fillOpacity:0.7,strokeColor:'white',strokeWeight:1}
-    });
-    marker.addListener('click',()=>{
-      new google.maps.InfoWindow({content:`<div style="font-family:Inter,sans-serif;font-size:13px"><strong>${a.name}</strong><br>${fmtDate(a.start_date_local)}<br>${a.distance?(a.distance/1000).toFixed(1)+'km':''} ${fmtTime(a.moving_time)}</div>`}).open(gmapInstance,marker);
-    });
-    gmapMarkers.push(marker);
-  });
-  if(acts.length && gmapInstance){
-    const bounds = new google.maps.LatLngBounds();
-    acts.slice(0,200).forEach(a=>bounds.extend({lat:a.start_latlng[0],lng:a.start_latlng[1]}));
-    gmapInstance.fitBounds(bounds);
-  }
-}
 
-function buildFallbackMap(acts){
-  // SVG map with actual coordinates plotted
-  // Map viewport: roughly lng -25 to 55, lat 25 to 72 (Europe + some world)
-  const minLng=-25,maxLng=55,minLat=25,maxLat=72;
-  const W=100,H=65;
-  function toSVG(lat,lng){
-    const x = ((lng-minLng)/(maxLng-minLng)*W);
-    const y = H - ((lat-minLat)/(maxLat-minLat)*H);
-    return {x,y};
-  }
-  // Cluster nearby points
-  const clusters=[];
-  acts.forEach(a=>{
-    const lat=a.start_latlng[0],lng=a.start_latlng[1];
-    if(lat<minLat||lat>maxLat||lng<minLng||lng>maxLng) return;
-    const {x,y}=toSVG(lat,lng);
-    const existing=clusters.find(c=>Math.abs(c.x-x)<2&&Math.abs(c.y-y)<2);
-    if(existing){existing.count++;existing.sports.add(a.sport);}
-    else clusters.push({x,y,count:1,sports:new Set([a.sport]),name:a.name});
-  });
-  const pins=clusters.map(cl=>{
-    const mainSport=[...cl.sports][0];
-    const col=sp(mainSport).color;
-    const r=Math.min(6,2.5+Math.log(cl.count));
-    return `<circle cx="${cl.x.toFixed(1)}%" cy="${cl.y.toFixed(1)}%" r="${r}" fill="${col}" opacity="0.75" stroke="white" stroke-width="0.8"><title>${cl.name} (${cl.count} activities)</title></circle>`;
-  }).join('');
-  return `<svg viewBox="0 0 100 65" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:100%;background:#e8eff7;border-radius:8px">
-    <rect width="100" height="65" fill="#dde8f0"/>
-    <!-- Landmasses (approximate) -->
-    <path d="M2 20 L12 18 L18 22 L20 30 L16 38 L10 40 L4 36 L2 28 Z" fill="#c8d8c8" opacity="0.8"/>
-    <path d="M10 40 L20 38 L24 44 L22 54 L16 58 L10 54 L8 46 Z" fill="#c8d8c8" opacity="0.8"/>
-    <path d="M30 16 L55 14 L58 20 L56 28 L48 32 L34 30 L30 24 Z" fill="#c8d8c8" opacity="0.8"/>
-    <path d="M32 30 L56 28 L60 36 L58 50 L50 56 L42 56 L36 48 L32 38 Z" fill="#c8d8c8" opacity="0.8"/>
-    <path d="M55 12 L95 10 L98 18 L96 30 L88 36 L72 36 L58 30 L56 20 Z" fill="#c8d8c8" opacity="0.8"/>
-    <path d="M74 40 L90 38 L94 48 L90 56 L80 58 L74 54 L72 46 Z" fill="#c8d8c8" opacity="0.8"/>
-    <!-- UK separate -->
-    <path d="M28 16 L32 15 L33 19 L31 21 L28 20 Z" fill="#c8d8c8" opacity="0.9"/>
-    ${pins}
-    <text x="2" y="63" font-size="4" fill="#94a3b8" font-family="Inter,sans-serif">Zoom unavailable without Google Maps API key</text>
-  </svg>`;
-}
 
 function renderAll(){
-  renderSidebar();renderOverview();renderOverviewYOY();renderYTD();renderTrends();
+  renderSidebar();renderOverview();renderOverviewGear();renderYTD();renderTrends();
   populateActFilters();filterActivities();renderMilestones();
   renderGearTimeline();renderPlaces();renderInsights();
   setWelcome();
@@ -1211,7 +1116,7 @@ function renderAll(){
 // ══════════════════════════════════════════
 function getFiltered(weeks=currentWeeks){
   let a=allActivities;
-  if(weeks<9999){const c=Date.now()-weeks*7*86400000;a=a.filter(x=>new Date(x.start_date_local)>=c);}
+  if(weeks<9999){const c=Date.now()-weeks*7*86400000;a=a.filter(x=>parseLocal(x.start_date_local)>=c);}
   if(filteredSports.size) a=a.filter(x=>!filteredSports.has(x.sport));
   if(filteredGear.size)   a=a.filter(x=>filteredGear.has(x.gear_id));
   return a;
@@ -1251,22 +1156,67 @@ function renderSidebar(){
     };
     gfEl.appendChild(d);
   });
-  // Stats
+  // Extended sidebar stats
+  const rides=allActivities.filter(a=>a.sport==='Ride');
+  const runs=allActivities.filter(a=>a.sport==='Run');
   const td=allActivities.reduce((s,a)=>s+a.distance,0)/1000;
   const tt=allActivities.reduce((s,a)=>s+a.moving_time,0)/3600;
   const te=allActivities.reduce((s,a)=>s+a.total_elevation_gain,0)/1000;
+  const rdist=(rides.reduce((s,a)=>s+a.distance,0)/1000).toFixed(0);
+  const relev=(rides.reduce((s,a)=>s+a.total_elevation_gain,0)/1000).toFixed(1);
+  const rndist=(runs.reduce((s,a)=>s+a.distance,0)/1000).toFixed(0);
   document.getElementById('sidebar-stats').innerHTML=`
-    <div class="sidebar-stat"><span class="sb-stat-label">Distance</span><span class="sb-stat-val">${td.toFixed(0)} km</span></div>
-    <div class="sidebar-stat"><span class="sb-stat-label">Time</span><span class="sb-stat-val">${tt.toFixed(0)} hrs</span></div>
+    <div class="sidebar-stat"><span class="sb-stat-label">Total dist</span><span class="sb-stat-val">${td.toFixed(0)} km</span></div>
+    <div class="sidebar-stat"><span class="sb-stat-label">Total time</span><span class="sb-stat-val">${tt.toFixed(0)} hrs</span></div>
     <div class="sidebar-stat"><span class="sb-stat-label">Elevation</span><span class="sb-stat-val">${te.toFixed(1)} km</span></div>
-    <div class="sidebar-stat"><span class="sb-stat-label">Activities</span><span class="sb-stat-val">${allActivities.length}</span></div>`;
+    <div class="sidebar-stat"><span class="sb-stat-label">Activities</span><span class="sb-stat-val">${allActivities.length}</span></div>
+    <div class="sb-divider" style="margin:8px 0"></div>
+    <div style="font-size:10px;font-weight:600;color:var(--text4);text-transform:uppercase;letter-spacing:.6px;padding:2px 4px;margin-bottom:4px">🚴 Cycling</div>
+    <div class="sidebar-stat"><span class="sb-stat-label">Distance</span><span class="sb-stat-val">${rdist} km</span></div>
+    <div class="sidebar-stat"><span class="sb-stat-label">Rides</span><span class="sb-stat-val">${rides.length}</span></div>
+    <div class="sidebar-stat"><span class="sb-stat-label">Elevation</span><span class="sb-stat-val">${relev} km</span></div>
+    <div class="sidebar-stat"><span class="sb-stat-label">Avg dist</span><span class="sb-stat-val">${rides.length?(rides.reduce((s,a)=>s+a.distance,0)/1000/rides.length).toFixed(1):0} km</span></div>
+    <div class="sb-divider" style="margin:8px 0"></div>
+    <div style="font-size:10px;font-weight:600;color:var(--text4);text-transform:uppercase;letter-spacing:.6px;padding:2px 4px;margin-bottom:4px">🏃 Running</div>
+    <div class="sidebar-stat"><span class="sb-stat-label">Distance</span><span class="sb-stat-val">${rndist} km</span></div>
+    <div class="sidebar-stat"><span class="sb-stat-label">Runs</span><span class="sb-stat-val">${runs.length}</span></div>
+    <div class="sidebar-stat"><span class="sb-stat-label">Avg pace</span><span class="sb-stat-val">${avgPace(runs)}/km</span></div>
+    <div class="sidebar-stat"><span class="sb-stat-label">Avg dist</span><span class="sb-stat-val">${runs.length?(runs.reduce((s,a)=>s+a.distance,0)/1000/runs.length).toFixed(1):0} km</span></div>`;
 }
 
 // ══════════════════════════════════════════
 // OVERVIEW
 // ══════════════════════════════════════════
 function setRange(w,btn){currentWeeks=w;document.querySelectorAll('.tbn').forEach(b=>b.classList.remove('active'));btn.classList.add('active');renderOverview();}
-function renderOverview(){const a=getFiltered();renderStatsRow(a);renderBarChart(a);renderCalendar();}
+function renderOverview(){const a=getFiltered();renderStatsRow(a);renderBarChart(a);renderOverviewGear();}
+
+function renderOverviewGear(){
+  const el=document.getElementById('overview-gear');
+  if(!el) return;
+  if(!Object.keys(gearMap).length){el.innerHTML='';return;}
+  const acts=getFiltered();
+  const gearUsed={};
+  acts.forEach(a=>{if(a.gear_id&&gearMap[a.gear_id])gearUsed[a.gear_id]=(gearUsed[a.gear_id]||0)+a.distance;});
+  const rows=Object.entries(gearMap).map(([id,g])=>{
+    const dist=(gearUsed[id]||0)/1000;
+    if(!dist) return '';
+    const icon=g.type==='bike'?'🚴':'👟';
+    const pct=Math.round(dist/(Object.values(gearUsed).reduce((s,v)=>s+v,1)/1000)*100);
+    return `<div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--border-light)">
+      <span style="font-size:16px">${icon}</span>
+      <span style="flex:1;font-size:13px;font-weight:500">${g.name}</span>
+      <div style="width:100px;height:4px;background:var(--bg3);border-radius:2px;overflow:hidden">
+        <div style="height:100%;width:${Math.min(100,pct)}%;background:var(--accent);border-radius:2px"></div>
+      </div>
+      <span style="font-size:12px;color:var(--text3);width:55px;text-align:right">${dist.toFixed(0)} km</span>
+    </div>`;
+  }).filter(Boolean).join('');
+  if(!rows){el.innerHTML='';return;}
+  el.innerHTML=`<div class="chart-card">
+    <div class="chart-header"><div class="chart-title">Gear Usage</div><div class="chart-meta">in selected period</div></div>
+    ${rows}
+  </div>`;
+}
 
 function renderStatsRow(acts){
   const rides=acts.filter(a=>a.sport==='Ride');
@@ -1287,7 +1237,7 @@ function renderBarChart(acts){
   const weeks=[];
   for(let i=w-1;i>=0;i--){
     const s=new Date(now-i*7*86400000),e=new Date(s.getTime()+7*86400000);
-    const wa=acts.filter(a=>{const d=new Date(a.start_date_local);return d>=s&&d<e;});
+    const wa=acts.filter(a=>{const d=parseLocal(a.start_date_local);return d>=s&&d<e;});
     const bt={};wa.forEach(a=>{bt[a.sport]=bt[a.sport]||{color:sp(a.sport).color,m:0};bt[a.sport].m+=a.moving_time/60;});
     weeks.push({s,total:wa.reduce((x,a)=>x+a.moving_time/60,0),bt});
   }
@@ -1333,7 +1283,7 @@ function renderYTD(){
   const prevStart=new Date(cy-1,0,1);
   const prevEnd=new Date(cy-1,now.getMonth(),now.getDate());
   const ytd=allActivities.filter(a=>new Date(a.start_date_local)>=ytdStart);
-  const prev=allActivities.filter(a=>{const d=new Date(a.start_date_local);return d>=prevStart&&d<=prevEnd;});
+  const prev=allActivities.filter(a=>{const d=parseLocal(a.start_date_local);return d>=prevStart&&d<=prevEnd;});
   function vs(curr,prev){
     if(!prev||!curr) return '<span class="flat">–</span>';
     const p=Math.round((curr-prev)/prev*100);
@@ -1362,6 +1312,9 @@ function renderYTD(){
       <div class="ytd-card"><div class="ytd-label">Elevation</div><div class="ytd-val">${(e/1000).toFixed(1)}<span class="ytd-unit">km</span></div><div class="ytd-vs">${vs(e,pe)}</div></div>
     </div>
     <div class="sport-chips">${chips}</div>`;
+
+  // Render YOY comparison at bottom of YTD tab
+  renderOverviewYOY();
 }
 
 // ══════════════════════════════════════════
@@ -1377,7 +1330,7 @@ function renderTrends(){
   else if(sportF==='WeightTraining') acts=acts.filter(a=>a.sport==='WeightTraining');
   const bkts={};
   acts.forEach(a=>{
-    const d=new Date(a.start_date_local); let key;
+    const d=parseLocal(a.start_date_local); let key;
     if(group==='year') key=String(d.getFullYear());
     else if(group==='month') key=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
     else{if(Date.now()-d>52*7*86400000)return;const w=getWeek(d);key=`${d.getFullYear()}-W${String(w).padStart(2,'0')}`;}
@@ -1429,7 +1382,7 @@ function filterActivities(){
   const sort=document.getElementById('act-sort').value;
   cachedFiltered=allActivities.filter(a=>{
     if(sf&&a.sport!==sf) return false;
-    if(yf&&new Date(a.start_date_local).getFullYear()!=yf) return false;
+    if(yf&&parseLocal(a.start_date_local).getFullYear()!=yf) return false;
     if(gf&&a.gear_id!==gf) return false;
     if(q){const h=[(a.name||''),(a.description||''),(a.private_note||''),(a.location_city||''),(a.location_country||'')].join(' ').toLowerCase();if(!h.includes(q))return false;}
     return true;
@@ -1507,7 +1460,7 @@ function getStreak(){
   const today=new Date();today.setHours(0,0,0,0);let streak=0;
   for(let d=0;d<365;d++){
     const ds=new Date(today-d*86400000).toISOString().split('T')[0];
-    if(allActivities.some(a=>a.start_date_local.startsWith(ds)))streak++;else if(d>0)break;
+    if(allActivities.some(a=>localDateStr(a.start_date_local)===ds))streak++;else if(d>0)break;
   }
   return streak;
 }
@@ -1557,7 +1510,7 @@ function renderGearTimeline(){
         const gId=from.gear_id;
         if(!gId){intervals.push({from,to:to||null,dist:0});continue;}
         const gActs=(gearActs[gId]||[]).filter(a=>{
-          const d=new Date(a.start_date_local);
+          const d=parseLocal(a.start_date_local);
           const start=new Date(from.start_date_local);
           const end=to?new Date(to.start_date_local):new Date();
           return d>=start&&d<=end;
@@ -1633,6 +1586,8 @@ function renderGearTimeline(){
 // ══════════════════════════════════════════
 function renderPlaces(){
   const q=(document.getElementById('places-search')?.value||'').toLowerCase();
+
+  // Count countries and cities
   const countryCounts={}, cityCounts={};
   allActivities.forEach(a=>{
     const loc=extractLocation(a);
@@ -1641,14 +1596,26 @@ function renderPlaces(){
     if(loc.country) countryCounts[loc.country]=(countryCounts[loc.country]||0)+1;
     if(loc.city)    cityCounts[loc.city]=(cityCounts[loc.city]||0)+1;
   });
-  const countries=Object.entries(countryCounts).sort((a,b)=>b[1]-a[1]);
-  const cities=Object.entries(cityCounts).sort((a,b)=>b[1]-a[1]).slice(0,25);
-  const withCoords=allActivities.filter(a=>a.start_latlng&&a.start_latlng[0]);
-  document.getElementById('places-meta').textContent=`${countries.length} countries · ${withCoords.length} activities with GPS`;
-  // Build map
-  buildGoogleMap(allActivities, q);
-  function makeList(items,title){
-    if(!items.length) return `<div class="chart-card"><div class="chart-header"><div class="chart-title">${title}</div></div><p style="color:var(--text3);font-size:13px">No data. Location is extracted from GPS coordinates and timezone — indoor activities may not have location data.</p></div>`;
+
+  // Activities with GPS coordinates
+  let gpsActs = allActivities.filter(a=>a.start_latlng&&a.start_latlng[0]&&a.start_latlng[1]);
+  if(q) gpsActs = gpsActs.filter(a=>{
+    const loc=extractLocation(a);
+    return [(loc.country||''),(loc.city||''),a.name||''].join(' ').toLowerCase().includes(q);
+  });
+
+  const withCoords = allActivities.filter(a=>a.start_latlng&&a.start_latlng[0]).length;
+  const countries  = Object.entries(countryCounts).sort((a,b)=>b[1]-a[1]);
+  const cities     = Object.entries(cityCounts).sort((a,b)=>b[1]-a[1]).slice(0,25);
+  document.getElementById('places-meta').textContent =
+    `${countries.length} countries · ${withCoords} activities with GPS`;
+
+  // Build Leaflet map
+  buildOSMMap(gpsActs);
+
+  // Lists
+  function makeList(items, title){
+    if(!items.length) return `<div class="chart-card"><div class="chart-header"><div class="chart-title">${title}</div></div><p style="color:var(--text3);font-size:13px">No location data. Outdoor GPS activities show here.</p></div>`;
     const max=items[0][1];
     return `<div class="chart-card"><div class="chart-header"><div class="chart-title">${title}</div><div class="chart-meta">${items.length} total</div></div>
       <div class="geo-list">${items.map(([name,count],i)=>`
@@ -1656,7 +1623,70 @@ function renderPlaces(){
         <div class="geo-bar-wrap"><div class="geo-bar" style="width:${(count/max*100).toFixed(0)}%"></div></div>
         <div class="geo-count">${count}</div></div>`).join('')}</div></div>`;
   }
-  document.getElementById('geo-content').innerHTML=makeList(countries,'Countries')+makeList(cities,'Cities');
+  document.getElementById('geo-content').innerHTML =
+    makeList(countries,'Countries') + makeList(cities,'Cities');
+}
+
+let _osmMap = null;
+let _osmMarkers = null;
+
+function buildOSMMap(acts){
+  const mapEl = document.getElementById('osm-map');
+  if(!mapEl) return;
+
+  // Init map once
+  if(!_osmMap){
+    _osmMap = L.map('osm-map', {zoomControl:true});
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+      maxZoom: 18
+    }).addTo(_osmMap);
+    _osmMarkers = L.featureGroup().addTo(_osmMap);
+  }
+
+  // Clear existing markers
+  _osmMarkers.clearLayers();
+
+  if(!acts.length){
+    _osmMap.setView([51.5, -0.1], 5);
+    return;
+  }
+
+  // Add circle markers for each activity (cluster nearby ones)
+  const maxToPlot = Math.min(acts.length, 800);
+  acts.slice(0, maxToPlot).forEach(a => {
+    const lat = a.start_latlng[0], lng = a.start_latlng[1];
+    const info = sp(a.sport);
+    // Convert CSS var colour to hex for Leaflet
+    const colMap = {
+      'var(--ride)':'#fc4c02','var(--run)':'#34c759','var(--racquet)':'#ff9f0a',
+      'var(--weights)':'#af52de','var(--walk)':'#32ade6','var(--skate)':'#ff2d55',
+      '#0071e3':'#0071e3','#30d158':'#30d158','#8e8e93':'#8e8e93'
+    };
+    const col = colMap[info.color] || '#fc4c02';
+    const marker = L.circleMarker([lat,lng], {
+      radius: 5,
+      fillColor: col,
+      color: '#fff',
+      weight: 1,
+      opacity: 0.9,
+      fillOpacity: 0.75
+    });
+    const dist = a.distance ? (a.distance/1000).toFixed(1)+'km' : '';
+    marker.bindPopup(`<div style="font-family:-apple-system,sans-serif;font-size:13px;min-width:160px">
+      <div style="font-weight:600">${a.name}</div>
+      <div style="color:#6e6e73;font-size:12px;margin-top:2px">${fmtDate(a.start_date_local)}</div>
+      <div style="margin-top:4px">${info.icon} ${info.label}${dist?' · '+dist:''} · ${fmtTime(a.moving_time)}</div>
+    </div>`);
+    _osmMarkers.addLayer(marker);
+  });
+
+  // Fit map to markers
+  try { _osmMap.fitBounds(_osmMarkers.getBounds().pad(0.1)); }
+  catch(e){ _osmMap.setView([51.5,-0.1],5); }
+
+  // Force resize in case tab was hidden when map was init'd
+  setTimeout(()=>_osmMap.invalidateSize(),100);
 }
 
 
@@ -1694,8 +1724,8 @@ function buildSummary(){
   const runs=allActivities.filter(a=>a.sport==='Run');
   const raq=allActivities.filter(a=>a.sport==='Racquet');
   const wts=allActivities.filter(a=>a.sport==='WeightTraining');
-  const ytd=allActivities.filter(a=>new Date(a.start_date_local).getFullYear()===cy);
-  const prevYTD=allActivities.filter(a=>{const d=new Date(a.start_date_local);return d.getFullYear()===cy-1&&d<=new Date(cy-1,now.getMonth(),now.getDate());});
+  const ytd=allActivities.filter(a=>parseLocal(a.start_date_local).getFullYear()===cy);
+  const prevYTD=allActivities.filter(a=>{const d=parseLocal(a.start_date_local);return d.getFullYear()===cy-1&&d<=new Date(cy-1,now.getMonth(),now.getDate());});
   // Per-year stats
   const years=[...new Set(allActivities.map(a=>new Date(a.start_date_local).getFullYear()))].sort().slice(-6);
   const perYear=years.map(y=>{
@@ -1718,8 +1748,8 @@ function fallbackInsights(){
   const cy=new Date().getFullYear();
   const rides=allActivities.filter(a=>a.sport==='Ride');
   const runs=allActivities.filter(a=>a.sport==='Run');
-  const ytd=allActivities.filter(a=>new Date(a.start_date_local).getFullYear()===cy);
-  const prev=allActivities.filter(a=>new Date(a.start_date_local).getFullYear()===cy-1);
+  const ytd=allActivities.filter(a=>parseLocal(a.start_date_local).getFullYear()===cy);
+  const prev=allActivities.filter(a=>parseLocal(a.start_date_local).getFullYear()===cy-1);
   return [
     {title:'Cycling dominates your training',body:`${(rides.reduce((s,a)=>s+a.distance,0)/1000).toFixed(0)}km across ${rides.length} rides makes cycling your primary sport. The daily commute is building consistent aerobic base year-round.`},
     {title:'Running pace benchmark',body:`${(runs.reduce((s,a)=>s+a.distance,0)/1000).toFixed(0)}km run at an average pace of ${avgPace(runs)}/km. Cross-training with cycling keeps leg fatigue low for quality run sessions.`},
@@ -1741,14 +1771,37 @@ function switchTab(name,btn){
   document.querySelectorAll('.tab-content').forEach(t=>t.classList.remove('active'));
   btn.classList.add('active');
   document.getElementById('tab-'+name).classList.add('active');
-  if(name==='trends') renderTrends();
-  if(name==='places') renderPlaces();
-  if(name==='week') renderWeek();
+  if(name==='trends')   renderTrends();
+  if(name==='places')   renderPlaces();
+  if(name==='week')     renderWeek();
+  if(name==='overview') renderOverviewGear();
+  if(name==='ytd')      renderYTD();
+}
+
+function toggleSidebar(){
+  const sb=document.getElementById('sidebar');
+  const tb=document.getElementById('sb-toggle');
+  const body=document.querySelector('.app-body');
+  sb.classList.toggle('collapsed');
+  tb.textContent = sb.classList.contains('collapsed') ? '▶ filters' : '◀ filters';
+  tb.style.left   = sb.classList.contains('collapsed') ? '0' : '200px';
 }
 
 // ══════════════════════════════════════════
 // HELPERS
 // ══════════════════════════════════════════
+// Parse Strava date as local date (strip Z/timezone, treat as local)
+function parseLocal(iso){
+  // Remove trailing Z or timezone offset so browser treats as local time
+  const s = iso.replace('Z','').replace(/[+-]\d{2}:\d{2}$/,'');
+  return new Date(s);
+}
+// Get YYYY-MM-DD string in local time (not UTC)
+function localDateStr(iso){
+  const d = parseLocal(iso);
+  return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+}
+
 function fmtTime(s){if(!s)return'–';const h=Math.floor(s/3600),m=Math.floor((s%3600)/60);return h?`${h}h ${m}m`:`${m}m`;}
 function fmtDate(iso){return new Date(iso).toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric'});}
 function avgPace(acts){const d=acts.reduce((s,a)=>s+a.distance,0),t=acts.reduce((s,a)=>s+a.moving_time,0);if(!d)return'–';const sec=t/(d/1000);return`${Math.floor(sec/60)}:${String(Math.round(sec%60)).padStart(2,'0')}`;}

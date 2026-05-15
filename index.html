@@ -86,11 +86,61 @@ body { background: var(--bg2); color: var(--text); font-family: 'Inter', -apple-
 .app-body { display: grid; grid-template-columns: 200px 1fr; min-height: calc(100vh - 52px); }
 
 /* ─── SIDEBAR ─── */
+/* ── SIDEBAR — DESKTOP ── */
 .sidebar { background: var(--surface); border-right: 1px solid var(--border-light); padding: 16px 0; position: sticky; top: 52px; height: calc(100vh - 52px); overflow-y: auto; transition: width .25s ease; overflow-x: hidden; width: 200px; }
 .sidebar.collapsed { width: 0; padding: 0; border-right: none; }
+
+/* Desktop toggle tab */
 .sidebar-toggle { position: fixed; top: 50%; left: 200px; transform: translateY(-50%); z-index: 200; background: var(--surface); border: 1px solid var(--border-light); border-left: none; border-radius: 0 6px 6px 0; padding: 8px 4px; cursor: pointer; font-size: 11px; color: var(--text3); transition: left .25s ease; writing-mode: vertical-rl; letter-spacing: 1px; box-shadow: 2px 0 6px rgba(0,0,0,.06); }
 .sidebar-toggle:hover { color: var(--accent); }
 .sidebar.collapsed ~ * .sidebar-toggle, .app-body.sb-collapsed .sidebar-toggle { left: 0; }
+
+/* ── SIDEBAR — MOBILE ── */
+@media (max-width: 768px) {
+  /* Hide desktop toggle on mobile */
+  .sidebar-toggle { display: none; }
+
+  /* Sidebar becomes a fixed bottom sheet */
+  .sidebar {
+    position: fixed; bottom: 0; left: 0; right: 0; top: auto;
+    width: 100% !important; height: 0;
+    border-right: none; border-top: 1px solid var(--border-light);
+    border-radius: 16px 16px 0 0; z-index: 300;
+    overflow-y: auto; overflow-x: hidden;
+    transition: height .3s ease; padding: 0;
+    box-shadow: 0 -4px 24px rgba(0,0,0,.12);
+  }
+  .sidebar.mobile-open {
+    height: 60vh; padding: 16px 0 32px;
+  }
+  /* Drag handle */
+  .sidebar::before {
+    content: ''; display: block; width: 36px; height: 4px;
+    background: var(--border); border-radius: 2px;
+    margin: 8px auto 12px; flex-shrink: 0;
+  }
+  /* App body: no grid offset for sidebar on mobile */
+  .app-body { grid-template-columns: 1fr; }
+
+  /* Mobile filter button in top bar */
+  .mobile-filter-btn {
+    display: flex; align-items: center; gap: 6px;
+    background: var(--bg2); border: 1px solid var(--border);
+    border-radius: 8px; padding: 6px 12px;
+    font-family: inherit; font-size: 12px; font-weight: 500;
+    color: var(--text2); cursor: pointer; flex-shrink: 0;
+  }
+  /* Overlay when sidebar open */
+  .sidebar-overlay {
+    display: none; position: fixed; inset: 0;
+    background: rgba(0,0,0,.3); z-index: 299;
+  }
+  .sidebar-overlay.visible { display: block; }
+}
+@media (min-width: 769px) {
+  .mobile-filter-btn { display: none; }
+  .sidebar-overlay { display: none !important; }
+}
 .sb-section { padding: 0 12px; margin-bottom: 20px; }
 .sb-heading { font-size: 11px; font-weight: 600; color: var(--text4); text-transform: uppercase; letter-spacing: .8px; margin-bottom: 8px; padding: 0 4px; }
 .filter-pill { display: flex; align-items: center; gap: 8px; padding: 7px 8px; border-radius: var(--radius-sm); cursor: pointer; transition: background .1s; font-size: 13px; color: var(--text2); }
@@ -112,9 +162,24 @@ body { background: var(--bg2); color: var(--text); font-family: 'Inter', -apple-
 
 /* ─── CONTENT ─── */
 .content { padding: 24px; min-width: 0; overflow-x: hidden; }
+@media (max-width: 768px) {
+  .content { padding: 12px; }
+  .stats-row { grid-template-columns: 1fr 1fr; gap: 8px; }
+  .ytd-grid { grid-template-columns: 1fr 1fr; gap: 8px; }
+  .trends-grid { grid-template-columns: 1fr; }
+  .milestones-grid { grid-template-columns: 1fr; }
+  .act-row { grid-template-columns: 28px 1fr 60px; }
+  .act-row > *:nth-child(n+4) { display: none; }
+  .charts-2col { grid-template-columns: 1fr; }
+  .top-bar { padding: 0 12px; gap: 8px; }
+  .top-logo { font-size: 16px; }
+  .top-right { font-size: 11px; }
+  #top-center { display: none !important; }
+}
 
 /* ─── TABS ─── */
-.tabs { display: flex; gap: 2px; margin-bottom: 24px; background: var(--bg3); padding: 3px; border-radius: 10px; width: fit-content; overflow-x: auto; }
+.tabs { display: flex; gap: 2px; margin-bottom: 24px; background: var(--bg3); padding: 3px; border-radius: 10px; width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; scrollbar-width: none; }
+.tabs::-webkit-scrollbar { display: none; }
 .tab { padding: 7px 14px; font-size: 13px; font-weight: 500; color: var(--text3); cursor: pointer; border: none; background: none; border-radius: 8px; transition: all .15s; white-space: nowrap; }
 .tab.active { background: var(--surface); color: var(--text); box-shadow: 0 1px 3px rgba(0,0,0,.1); }
 .tab-content { display: none; }
@@ -335,6 +400,9 @@ canvas { max-height: 200px !important; }
       <div class="progress-wrap"><div class="progress-bar"><div class="progress-fill" id="progress-fill"></div></div><span id="loading-text"></span></div>
     </div>
     <div id="top-welcome" style="flex:1;text-align:center;font-size:13px;color:var(--text3);font-style:italic"></div>
+    <button class="mobile-filter-btn" onclick="toggleSidebar()" id="mobile-filter-btn">
+      <span>⚡</span> Filters
+    </button>
     <div class="top-right"><strong id="athlete-name">–</strong><br>Synced <span id="sync-time">–</span></div>
   </div>
 
@@ -362,6 +430,7 @@ canvas { max-height: 200px !important; }
     <div class="content">
       <div class="tabs">
         <button class="tab active" onclick="switchTab('week',this)">This Week</button>
+        <button class="tab" onclick="switchTab('month',this)">Monthly</button>
         <button class="tab" onclick="switchTab('overview',this)">Overview</button>
         <button class="tab" onclick="switchTab('ytd',this)">YTD</button>
         <button class="tab" onclick="switchTab('trends',this)">Trends</button>
@@ -374,6 +443,9 @@ canvas { max-height: 200px !important; }
 
       <!-- THIS WEEK (default active) -->
       <div class="tab-content active" id="tab-week"><div id="week-content"></div></div>
+
+      <!-- MONTHLY RECAP -->
+      <div class="tab-content" id="tab-month"><div id="month-content"></div></div>
 
       <!-- OVERVIEW -->
       <div class="tab-content" id="tab-overview">
@@ -462,6 +534,7 @@ canvas { max-height: 200px !important; }
           <input class="search-field" id="places-search" placeholder="Filter by country or city…" oninput="renderPlaces()" style="max-width:280px">
           <span id="places-meta" style="font-size:12px;color:var(--text3)"></span>
         </div>
+        <div id="osm-legend" style="margin-bottom:8px"></div>
         <div id="osm-map" style="width:100%;height:480px;border-radius:12px;overflow:hidden;border:1px solid var(--border-light);margin-bottom:16px;z-index:0"></div>
         <div class="geo-grid" id="geo-content"></div>
       </div>
@@ -1022,6 +1095,10 @@ async function renderWeek(){
       <div class="chart-header"><div class="chart-title">Day-by-Day</div><div class="chart-meta">This week's activities</div></div>
       <div>${daysList}</div>
     </div>
+    <div class="chart-card" style="margin-bottom:16px" id="week-gear-wrap">
+      <div class="chart-header"><div class="chart-title">Gear This Week</div></div>
+      <div id="week-gear-table"></div>
+    </div>
     <div id="week-insights-loading" class="loading-row"><div class="spinner"></div>Generating weekly insights…</div>
     <div class="insights-grid" id="week-insights" style="margin-top:0"></div>`;
 
@@ -1053,8 +1130,47 @@ async function renderWeek(){
     });
   },50);
 
+  // Gear usage this week
+  renderWeekGear(thisWeek);
   // AI insights for this week
   renderWeekInsights(thisWeek, prevWeeks);
+}
+
+function renderWeekGear(thisWeek){
+  const el = document.getElementById('week-gear-table');
+  const wrap = document.getElementById('week-gear-wrap');
+  if(!el) return;
+  if(!Object.keys(gearMap).length){ wrap.style.display='none'; return; }
+  const used={};
+  thisWeek.forEach(a=>{
+    if(!a.gear_id||!gearMap[a.gear_id]) return;
+    if(!used[a.gear_id]) used[a.gear_id]={dist:0,count:0,time:0};
+    used[a.gear_id].dist  += a.distance;
+    used[a.gear_id].count += 1;
+    used[a.gear_id].time  += a.moving_time;
+  });
+  if(!Object.keys(used).length){ wrap.style.display='none'; return; }
+  wrap.style.display='';
+  const maxDist = Math.max(...Object.values(used).map(v=>v.dist),1);
+  el.innerHTML = Object.entries(used).sort((a,b)=>b[1].dist-a[1].dist).map(([id,v])=>{
+    const g=gearMap[id];
+    const icon=g.type==='bike'?'🚴':'👟';
+    const dist=(v.dist/1000).toFixed(1);
+    const pct=Math.round(v.dist/maxDist*100);
+    return `<div style="display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid var(--border-light)">
+      <span style="font-size:16px">${icon}</span>
+      <div style="flex:1;min-width:0">
+        <div style="font-size:13px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${g.name}</div>
+        <div style="height:4px;background:var(--bg3);border-radius:2px;margin-top:5px;overflow:hidden">
+          <div style="height:100%;width:${pct}%;background:var(--accent);border-radius:2px"></div>
+        </div>
+      </div>
+      <div style="text-align:right;flex-shrink:0">
+        <div style="font-size:13px;font-weight:600">${dist} km</div>
+        <div style="font-size:11px;color:var(--text3)">${v.count} act · ${fmtTime(v.time)}</div>
+      </div>
+    </div>`;
+  }).join('');
 }
 
 async function renderWeekInsights(thisWeek, prevWeeks){
@@ -1610,7 +1726,9 @@ function renderPlaces(){
   document.getElementById('places-meta').textContent =
     `${countries.length} countries · ${withCoords} activities with GPS`;
 
-  // Build Leaflet map
+  // Build Leaflet map with legend
+  const legendEl = document.getElementById('osm-legend');
+  if(legendEl) legendEl.innerHTML = buildMapLegend(gpsActs);
   buildOSMMap(gpsActs);
 
   // Lists
@@ -1630,63 +1748,75 @@ function renderPlaces(){
 let _osmMap = null;
 let _osmMarkers = null;
 
+// Sport → fixed hex colour for Leaflet (explicit per sport)
+function sportColour(sport){
+  const m={'Ride':'#fc4c02','Run':'#3b82f6','Racquet':'#f59e0b',
+           'WeightTraining':'#a855f7','Walk':'#06b6d4','Skate':'#ec4899',
+           'Swim':'#0ea5e9','Hike':'#22c55e','Other':'#9ca3af'};
+  return m[sport]||'#9ca3af';
+}
+
 function buildOSMMap(acts){
   const mapEl = document.getElementById('osm-map');
   if(!mapEl) return;
 
-  // Init map once
+  // Use CartoDB Positron — clean, minimal, light style
   if(!_osmMap){
-    _osmMap = L.map('osm-map', {zoomControl:true});
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
-      maxZoom: 18
+    _osmMap = L.map('osm-map',{zoomControl:true,preferCanvas:true});
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',{
+      attribution:'© <a href="https://www.openstreetmap.org/copyright">OSM</a> © <a href="https://carto.com/">CARTO</a>',
+      subdomains:'abcd', maxZoom:19
     }).addTo(_osmMap);
     _osmMarkers = L.featureGroup().addTo(_osmMap);
   }
 
-  // Clear existing markers
   _osmMarkers.clearLayers();
 
-  if(!acts.length){
-    _osmMap.setView([51.5, -0.1], 5);
-    return;
-  }
+  if(!acts.length){ _osmMap.setView([51.5,-0.1],5); return; }
 
-  // Add circle markers for each activity (cluster nearby ones)
-  const maxToPlot = Math.min(acts.length, 800);
+  const maxToPlot = Math.min(acts.length, 1000);
   acts.slice(0, maxToPlot).forEach(a => {
-    const lat = a.start_latlng[0], lng = a.start_latlng[1];
-    const info = sp(a.sport);
-    // Convert CSS var colour to hex for Leaflet
-    const colMap = {
-      'var(--ride)':'#fc4c02','var(--run)':'#34c759','var(--racquet)':'#ff9f0a',
-      'var(--weights)':'#af52de','var(--walk)':'#32ade6','var(--skate)':'#ff2d55',
-      '#0071e3':'#0071e3','#30d158':'#30d158','#8e8e93':'#8e8e93'
-    };
-    const col = colMap[info.color] || '#fc4c02';
-    const marker = L.circleMarker([lat,lng], {
-      radius: 5,
-      fillColor: col,
-      color: '#fff',
-      weight: 1,
-      opacity: 0.9,
-      fillOpacity: 0.75
+    const lat=a.start_latlng[0], lng=a.start_latlng[1];
+    const col=sportColour(a.sport);
+    const info=sp(a.sport);
+    const dist=a.distance?(a.distance/1000).toFixed(1)+'km':'';
+    const marker=L.circleMarker([lat,lng],{
+      radius:5, fillColor:col, color:'#fff',
+      weight:1.5, opacity:1, fillOpacity:0.8
     });
-    const dist = a.distance ? (a.distance/1000).toFixed(1)+'km' : '';
-    marker.bindPopup(`<div style="font-family:-apple-system,sans-serif;font-size:13px;min-width:160px">
-      <div style="font-weight:600">${a.name}</div>
-      <div style="color:#6e6e73;font-size:12px;margin-top:2px">${fmtDate(a.start_date_local)}</div>
-      <div style="margin-top:4px">${info.icon} ${info.label}${dist?' · '+dist:''} · ${fmtTime(a.moving_time)}</div>
-    </div>`);
+    marker.bindPopup(
+      `<div style="font-family:-apple-system,sans-serif;font-size:13px;min-width:160px">
+        <div style="font-weight:600">${a.name}</div>
+        <div style="color:#6e6e73;font-size:11px;margin-top:2px">${fmtDate(a.start_date_local)}</div>
+        <div style="margin-top:5px;display:flex;align-items:center;gap:6px">
+          <span style="background:${col};color:#fff;border-radius:4px;padding:1px 6px;font-size:11px">${info.label}</span>
+          ${dist?`<span style="font-size:12px">${dist}</span>`:''}
+          <span style="font-size:12px;color:#6e6e73">${fmtTime(a.moving_time)}</span>
+        </div>
+      </div>`
+    );
     _osmMarkers.addLayer(marker);
   });
 
-  // Fit map to markers
-  try { _osmMap.fitBounds(_osmMarkers.getBounds().pad(0.1)); }
-  catch(e){ _osmMap.setView([51.5,-0.1],5); }
+  // Fit tightly to actual activity area
+  try{
+    const bounds=_osmMarkers.getBounds();
+    _osmMap.fitBounds(bounds.pad(0.08),{maxZoom:13});
+  }catch(e){ _osmMap.setView([51.5,-0.1],5); }
 
-  // Force resize in case tab was hidden when map was init'd
-  setTimeout(()=>_osmMap.invalidateSize(),100);
+  setTimeout(()=>_osmMap.invalidateSize(),150);
+}
+
+// Legend for Places map
+function buildMapLegend(acts){
+  const sportsPresent=[...new Set(acts.map(a=>a.sport))].filter(s=>['Ride','Run','Racquet','Walk','Hike','Swim','Skate'].includes(s));
+  return `<div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:12px;font-size:12px;align-items:center">
+    <span style="color:var(--text3);font-weight:500">Legend:</span>
+    ${sportsPresent.map(s=>`<span style="display:flex;align-items:center;gap:5px">
+      <span style="width:10px;height:10px;border-radius:50%;background:${sportColour(s)};display:inline-block;border:1.5px solid #fff;box-shadow:0 0 0 1px ${sportColour(s)}"></span>
+      ${sp(s).label}
+    </span>`).join('')}
+  </div>`;
 }
 
 
@@ -1766,6 +1896,214 @@ function fallbackInsights(){
 // ══════════════════════════════════════════
 // TAB SWITCHING
 // ══════════════════════════════════════════
+// ══════════════════════════════════════════
+// MONTHLY RECAP
+// ══════════════════════════════════════════
+let _monthYear = null, _monthMonth = null;
+
+function renderMonth(yr, mo){
+  const now = new Date();
+  // Default: previous month
+  if(yr===undefined){
+    if(_monthYear!==null){ yr=_monthYear; mo=_monthMonth; }
+    else{
+      const prev = new Date(now.getFullYear(), now.getMonth()-1, 1);
+      yr=prev.getFullYear(); mo=prev.getMonth();
+    }
+  }
+  _monthYear=yr; _monthMonth=mo;
+
+  const monthStart = new Date(yr, mo, 1);
+  const monthEnd   = new Date(yr, mo+1, 1);
+  const monthActs  = allActivities.filter(a=>{
+    const d=parseLocal(a.start_date_local);
+    return d>=monthStart && d<monthEnd;
+  });
+
+  // Month name
+  const monthName = monthStart.toLocaleDateString('en-GB',{month:'long',year:'numeric'});
+
+  // Build month selector options (all months with data + last 24 months)
+  const monthsWithData = new Set(allActivities.map(a=>{
+    const d=parseLocal(a.start_date_local);
+    return `${d.getFullYear()}-${d.getMonth()}`;
+  }));
+  const selectorOptions = [];
+  for(let i=0;i<36;i++){
+    const d=new Date(now.getFullYear(),now.getMonth()-i,1);
+    const key=`${d.getFullYear()}-${d.getMonth()}`;
+    if(monthsWithData.has(key)||i<13){
+      selectorOptions.push({yr:d.getFullYear(),mo:d.getMonth(),
+        label:d.toLocaleDateString('en-GB',{month:'long',year:'numeric'}),
+        selected:d.getFullYear()===yr&&d.getMonth()===mo});
+    }
+  }
+  const selector=`<select onchange="renderMonth(+this.value.split('-')[0],+this.value.split('-')[1])"
+    style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-sm);padding:8px 12px;font-family:inherit;font-size:13px;color:var(--text);outline:none;cursor:pointer">
+    ${selectorOptions.map(o=>`<option value="${o.yr}-${o.mo}" ${o.selected?'selected':''}>${o.label}</option>`).join('')}
+  </select>`;
+
+  // ── Calendar with streaks ──
+  const daysInMonth = new Date(yr,mo+1,0).getDate();
+  const firstDow = new Date(yr,mo,1).getDay(); // 0=Sun
+  const startOffset = firstDow===0?6:firstDow-1; // Monday start
+
+  // Activity streaks — compute current streak and weekly streaks
+  const activeDays = new Set(monthActs.map(a=>localDateStr(a.start_date_local)));
+  // Weekly streaks: count weeks with ≥5 active days
+  const weeks=[]; let wkActDays=0, wkStreak=0, bestWkStreak=0, cur=0;
+  for(let d=1;d<=daysInMonth;d++){
+    const ds=`${yr}-${String(mo+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+    const dow=new Date(yr,mo,d).getDay();
+    if(activeDays.has(ds)) wkActDays++;
+    if(dow===0||d===daysInMonth){ // end of week or month
+      const active=wkActDays>=5;
+      if(active){cur++;bestWkStreak=Math.max(bestWkStreak,cur);}else{cur=0;}
+      weeks.push({active,days:wkActDays}); wkActDays=0;
+    }
+  }
+
+  // Day streak in month
+  let maxStreak=0, curStreak=0, todayStr=localDateStr(new Date().toISOString());
+  for(let d=1;d<=daysInMonth;d++){
+    const ds=`${yr}-${String(mo+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+    if(activeDays.has(ds)){curStreak++;maxStreak=Math.max(maxStreak,curStreak);}
+    else curStreak=0;
+  }
+
+  // Build calendar grid
+  const calCells=[];
+  for(let i=0;i<startOffset;i++) calCells.push('<div></div>');
+  for(let d=1;d<=daysInMonth;d++){
+    const ds=`${yr}-${String(mo+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+    const dayActs=monthActs.filter(a=>localDateStr(a.start_date_local)===ds);
+    const isToday=ds===todayStr;
+    const sports=[...new Set(dayActs.map(a=>a.sport))];
+    const bg=sports.length?sportColour(sports[0])+'22':'transparent';
+    const border=isToday?'2px solid var(--accent)':sports.length?`1px solid ${sportColour(sports[0])}66`:'1px solid var(--border-light)';
+    const icons=sports.slice(0,2).map(s=>sp(s).icon).join('');
+    const title=dayActs.map(a=>a.name).join(', ')||'';
+    calCells.push(`<div style="aspect-ratio:1;border-radius:8px;background:${bg};border:${border};
+      display:flex;flex-direction:column;align-items:center;justify-content:center;
+      cursor:default;font-size:9px;position:relative" title="${title}">
+      <div style="font-size:10px;color:var(--text3);font-weight:${isToday?700:400}">${d}</div>
+      ${icons?`<div style="font-size:11px;line-height:1">${icons}</div>`:''}
+    </div>`);
+  }
+  const calDayHeaders=['M','T','W','T','F','S','S'].map(d=>
+    `<div style="text-align:center;font-size:10px;font-weight:600;color:var(--text4);padding-bottom:4px">${d}</div>`
+  ).join('');
+
+  // ── Stats ──
+  const rides=monthActs.filter(a=>a.sport==='Ride');
+  const runs =monthActs.filter(a=>a.sport==='Run');
+  const raq  =monthActs.filter(a=>a.sport==='Racquet');
+  const wts  =monthActs.filter(a=>a.sport==='WeightTraining');
+  const totDist=(monthActs.reduce((s,a)=>s+a.distance,0)/1000).toFixed(1);
+  const totTime=Math.floor(monthActs.reduce((s,a)=>s+a.moving_time,0)/3600);
+  const totElev=Math.round(monthActs.reduce((s,a)=>s+a.total_elevation_gain,0));
+  const rideDist=(rides.reduce((s,a)=>s+a.distance,0)/1000).toFixed(1);
+  const runDist =(runs.reduce((s,a)=>s+a.distance,0)/1000).toFixed(1);
+
+  // ── Compare to same month last year ──
+  const lyStart=new Date(yr-1,mo,1), lyEnd=new Date(yr-1,mo+1,1);
+  const lyActs=allActivities.filter(a=>{const d=parseLocal(a.start_date_local);return d>=lyStart&&d<lyEnd;});
+  const lyDist=(lyActs.reduce((s,a)=>s+a.distance,0)/1000).toFixed(1);
+  const lyCount=lyActs.length;
+  function mVs(curr,prev,unit=''){
+    if(!parseFloat(prev)) return '';
+    const diff=parseFloat(curr)-parseFloat(prev);
+    const sign=diff>=0?'+':''; const cls=diff>=0?'color:var(--green)':'color:var(--red)';
+    return `<span style="${cls};font-size:11px;margin-left:6px">${sign}${diff.toFixed(unit==='km'?1:0)}${unit} vs ${yr-1}</span>`;
+  }
+
+  // ── Sport breakdown bars ──
+  const sportBreakdown=[
+    {sport:'Ride', acts:rides, dist:rideDist},
+    {sport:'Run',  acts:runs,  dist:runDist},
+    {sport:'Racquet',acts:raq,dist:''},
+    {sport:'WeightTraining',acts:wts,dist:''},
+  ].filter(s=>s.acts.length).map(s=>{
+    const info=sp(s.sport); const col=sportColour(s.sport);
+    const hrs=(s.acts.reduce((x,a)=>x+a.moving_time,0)/3600).toFixed(1);
+    const pct=Math.round(s.acts.length/Math.max(monthActs.length,1)*100);
+    return `<div style="display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--border-light)">
+      <span style="font-size:20px">${info.icon}</span>
+      <div style="flex:1">
+        <div style="display:flex;align-items:baseline;gap:6px;margin-bottom:4px">
+          <span style="font-size:13px;font-weight:600">${info.label}</span>
+          <span style="font-size:11px;color:var(--text3)">${s.acts.length} sessions · ${hrs}h${s.dist?' · '+s.dist+'km':''}</span>
+        </div>
+        <div style="height:5px;background:var(--bg3);border-radius:3px;overflow:hidden">
+          <div style="height:100%;width:${pct}%;background:${col};border-radius:3px"></div>
+        </div>
+      </div>
+      <div style="font-size:12px;color:var(--text3);width:36px;text-align:right">${pct}%</div>
+    </div>`;
+  }).join('');
+
+  // ── Top activities ──
+  const topRide=[...rides].sort((a,b)=>b.distance-a.distance)[0];
+  const topRun =[...runs].sort((a,b)=>b.distance-a.distance)[0];
+  function topCard(a,label){
+    if(!a) return '';
+    return `<div style="background:var(--bg2);border-radius:var(--radius-sm);padding:12px 14px;flex:1;min-width:160px">
+      <div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:.5px;font-weight:600;margin-bottom:4px">${label}</div>
+      <div style="font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${a.name}</div>
+      <div style="font-size:12px;color:var(--text3);margin-top:2px">${(a.distance/1000).toFixed(1)}km · ${fmtTime(a.moving_time)}</div>
+      <div style="font-size:11px;color:var(--text4)">${fmtDate(a.start_date_local)}</div>
+    </div>`;
+  }
+
+  document.getElementById('month-content').innerHTML = `
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:20px;flex-wrap:wrap">
+      <div style="font-size:22px;font-weight:700;letter-spacing:-.5px">${monthName}</div>
+      ${selector}
+    </div>
+
+    <!-- Calendar -->
+    <div class="chart-card" style="margin-bottom:16px">
+      <div class="chart-header">
+        <div class="chart-title">Activity Calendar</div>
+        <div class="chart-meta">${activeDays.size} active days · ${maxStreak}d best streak · ${bestWkStreak}w active week streak</div>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:4px">
+        ${calDayHeaders}
+        ${calCells.join('')}
+      </div>
+      <div style="display:flex;gap:16px;margin-top:12px;flex-wrap:wrap">
+        ${weeks.map((w,i)=>`<div style="display:flex;align-items:center;gap:5px;font-size:11px;color:var(--text3)">
+          <div style="width:12px;height:12px;border-radius:3px;background:${w.active?'var(--green)':'var(--border)'}"></div>
+          Wk${i+1}: ${w.days}d ${w.active?'✓ Active week':''}
+        </div>`).join('')}
+      </div>
+    </div>
+
+    <!-- Key numbers -->
+    <div class="ytd-grid" style="margin-bottom:16px">
+      <div class="ytd-card"><div class="ytd-label">Activities</div><div class="ytd-val">${monthActs.length}</div><div class="ytd-vs">${mVs(monthActs.length,lyCount)}</div></div>
+      <div class="ytd-card"><div class="ytd-label">Distance</div><div class="ytd-val">${totDist}<span class="ytd-unit">km</span></div><div class="ytd-vs">${mVs(totDist,lyDist,'km')}</div></div>
+      <div class="ytd-card"><div class="ytd-label">Time</div><div class="ytd-val">${totTime}<span class="ytd-unit">hrs</span></div></div>
+      <div class="ytd-card"><div class="ytd-label">Elevation</div><div class="ytd-val">${totElev}<span class="ytd-unit">m</span></div></div>
+    </div>
+
+    <!-- Sport breakdown -->
+    <div class="chart-card" style="margin-bottom:16px">
+      <div class="chart-header"><div class="chart-title">Sport Breakdown</div></div>
+      ${sportBreakdown||'<p style="color:var(--text3);font-size:13px">No activities this month.</p>'}
+    </div>
+
+    <!-- Top activities -->
+    ${(topRide||topRun)?`<div class="chart-card" style="margin-bottom:16px">
+      <div class="chart-header"><div class="chart-title">Highlights</div></div>
+      <div style="display:flex;gap:10px;flex-wrap:wrap">
+        ${topCard(topRide,'Longest ride')}
+        ${topCard(topRun,'Longest run')}
+      </div>
+    </div>`:''}
+  `;
+}
+
 function switchTab(name,btn){
   document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
   document.querySelectorAll('.tab-content').forEach(t=>t.classList.remove('active'));
@@ -1774,17 +2112,31 @@ function switchTab(name,btn){
   if(name==='trends')   renderTrends();
   if(name==='places')   renderPlaces();
   if(name==='week')     renderWeek();
+  if(name==='month')    renderMonth();
   if(name==='overview') renderOverviewGear();
   if(name==='ytd')      renderYTD();
 }
 
 function toggleSidebar(){
-  const sb=document.getElementById('sidebar');
-  const tb=document.getElementById('sb-toggle');
-  const body=document.querySelector('.app-body');
-  sb.classList.toggle('collapsed');
-  tb.textContent = sb.classList.contains('collapsed') ? '▶ filters' : '◀ filters';
-  tb.style.left   = sb.classList.contains('collapsed') ? '0' : '200px';
+  const sb  = document.getElementById('sidebar');
+  const tb  = document.getElementById('sb-toggle');
+  const ov  = document.getElementById('sidebar-overlay');
+  const isMobile = window.innerWidth <= 768;
+
+  if(isMobile){
+    // Mobile: toggle bottom sheet
+    sb.classList.toggle('mobile-open');
+    if(ov) ov.classList.toggle('visible', sb.classList.contains('mobile-open'));
+    // Invalidate map if places tab is visible
+    if(_osmMap) setTimeout(()=>_osmMap.invalidateSize(),350);
+  } else {
+    // Desktop: collapse/expand side panel
+    sb.classList.toggle('collapsed');
+    if(tb){
+      tb.textContent = sb.classList.contains('collapsed') ? '▶ filters' : '◀ filters';
+      tb.style.left  = sb.classList.contains('collapsed') ? '0' : '200px';
+    }
+  }
 }
 
 // ══════════════════════════════════════════

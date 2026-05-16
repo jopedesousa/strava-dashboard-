@@ -411,7 +411,7 @@ canvas { max-height: 200px !important; }
   <div class="content" style="max-width:1200px;margin:0 auto;padding:20px 16px">
 
     <!-- AI INSIGHT BANNER -->
-    <div id="ai-insight-banner" style="display:none;background:linear-gradient(135deg,#fff8f5,#fff3ee);border:1px solid #fed7aa;border-radius:12px;padding:14px 18px;margin-bottom:20px;display:flex;gap:12px;align-items:flex-start">
+    <div id="ai-insight-banner" style="display:none;background:linear-gradient(135deg,#fff8f5,#fff3ee);border:1px solid #fed7aa;border-radius:12px;padding:14px 18px;margin-bottom:20px;gap:12px;align-items:flex-start">
       <span style="font-size:20px;flex-shrink:0">💡</span>
       <div style="flex:1">
         <div style="font-size:11px;font-weight:600;color:var(--accent);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">AI Insight</div>
@@ -551,6 +551,8 @@ let allActivities=[], gearMap={}, filteredSports=new Set(), filteredGear=new Set
 let currentWeeks=4, actPage=0, cachedFiltered=[], gearKeywords=[];
 const PER_PAGE=30;
 let charts={};
+// Regex to extract music from activity descriptions: "🎵 Artist - Album" or "Artist - Album" lines
+const musicRe = /(?:🎵\s*)?([^-\n]+?)\s*[-–]\s*([^\n]+)/g;
 
 // ══════════════════════════════════════════
 // SPORT SYSTEM
@@ -1218,9 +1220,7 @@ let gmapInstance = null, gmapMarkers = [], gmapLoaded = false;
 function renderAll(){
   renderHomePage();
   populateActFilters();
-  filterActivities();
-  renderMilestones();
-  renderGearTimeline();
+  populateActFilters._done = true;
   setWelcome();
   renderAIInsight();
 }
@@ -1445,6 +1445,7 @@ function getWeek(d){
 // ACTIVITIES
 // ══════════════════════════════════════════
 function populateActFilters(){
+  if(populateActFilters._done) return;
   const sports=[...new Set(allActivities.map(a=>a.sport))].sort();
   const sSel=document.getElementById('act-sport-f');
   sports.forEach(s=>{const o=document.createElement('option');o.value=s;o.textContent=sp(s).label;sSel.appendChild(o);});
@@ -2083,9 +2084,12 @@ function switchTab(name,btn){
   btn.classList.add('active');
   const el = document.getElementById('tab-'+name);
   if(el) el.classList.add('active');
-  if(name==='trends')  renderTrends();
-  if(name==='places')  { renderPlaces(); setTimeout(()=>{ if(_osmMap) _osmMap.invalidateSize(); },200); }
-  if(name==='home')    renderHomePage();
+  if(name==='trends')     renderTrends();
+  if(name==='activities') { populateActFilters._done || (populateActFilters(), populateActFilters._done=true); filterActivities(); }
+  if(name==='milestones') renderMilestones();
+  if(name==='gear')       renderGearTimeline();
+  if(name==='places')     { renderPlaces(); setTimeout(()=>{ if(_osmMap){ _osmMap.invalidateSize(); setTimeout(()=>{ _osmMap.invalidateSize(); try{ const b=_osmMarkers.getBounds(); if(b.isValid()) _osmMap.fitBounds(b,{padding:[40,40],maxZoom:12,animate:false}); }catch(e){} },300); } },100); }
+  if(name==='home')       renderHomePage();
 }
 
 function toggleSidebar(){ /* no-op — sidebar removed */ }
@@ -2161,6 +2165,7 @@ function renderMusic(){
   
   allActivities.forEach(a=>{
     const text = [a.description||'', a.name||''].join('\n');
+    musicRe.lastIndex = 0;
     let m;
     while((m=musicRe.exec(text))!==null){
       const artist = m[1].trim();

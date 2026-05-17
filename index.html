@@ -551,8 +551,9 @@ let allActivities=[], gearMap={}, filteredSports=new Set(), filteredGear=new Set
 let currentWeeks=4, actPage=0, cachedFiltered=[], gearKeywords=[];
 const PER_PAGE=30;
 let charts={};
-// Regex to extract music from activity descriptions: "🎵 Artist - Album" or "Artist - Album" lines
-const musicRe = /(?:🎵\s*)?([^-\n]+?)\s*[-–]\s*([^\n]+)/g;
+// Regex to extract music from activity descriptions: lines starting with 🎵 Band - Album
+// Matches: 🎵 Foo Fighters - Sonic Highways
+const musicRe = /^🎵\s+(.+?)\s*-\s*(.+)$/m;
 
 // ══════════════════════════════════════════
 // SPORT SYSTEM
@@ -1726,93 +1727,125 @@ function sportColour(sport){
 
 function buildMapLegend(acts){
   const seen=[...new Set(acts.map(a=>a.sport))];
+  if(!seen.length) return '';
   return `<div style="display:flex;gap:10px;flex-wrap:wrap;font-size:12px;align-items:center;margin-bottom:10px">
     <span style="color:var(--text3);font-weight:500">Legend:</span>
-    ${seen.map(s=>`<span style="display:flex;align-items:center;gap:4px">
-      <span style="width:10px;height:10px;border-radius:50%;background:${sportColour(s)};display:inline-block"></span>
-      ${sp(s).label}
+    ${seen.map(s=>`<span style="display:flex;align-items:center;gap:5px">
+      <span style="width:10px;height:10px;border-radius:50%;background:${sportColour(s)};display:inline-block;flex-shrink:0"></span>
+      <span>${sp(s).label}</span>
     </span>`).join('')}
   </div>`;
+}
+
+// Destroy the map completely and rebuild — only safe way to handle tab visibility timing
+function destroyOSMMap(){
+  if(_osmMap){
+    try{ _osmMap.remove(); }catch(e){}
+    _osmMap = null;
+    _osmMarkers = null;
+  }
 }
 
 function buildOSMMap(acts){
   const mapEl = document.getElementById('osm-map');
   if(!mapEl || typeof L === 'undefined') return;
 
-  // Ensure the map container has explicit dimensions
-  mapEl.style.height = '500px';
-  mapEl.style.width = '100%';
-
-  if(!_osmMap){
-    _osmMap = L.map('osm-map', {
-      zoomControl: true,
-      preferCanvas: true
-    });
-    L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',{
-      attribution:'© <a href="https://www.openstreetmap.org/">OSM</a> © <a href="https://carto.com/">CARTO</a>',
-      subdomains:'abcd', maxZoom:19, tileSize:256
-    }).addTo(_osmMap);
-    _osmMarkers = L.featureGroup().addTo(_osmMap);
-  } else {
-    _osmMarkers.clearLayers();
-  }
+  // Always destroy first — prevents stale state from hidden-tab init
+  destroyOSMMap();
 
   const toPlot = acts.filter(a=>
-    a.start_latlng && a.start_latlng.length===2 &&
-    typeof a.start_latlng[0]==='number' && typeof a.start_latlng[1]==='number' &&
-    a.start_latlng[0]!==0 && a.start_latlng[1]!==0 &&
-    Math.abs(a.start_latlng[0])<=90 && Math.abs(a.start_latlng[1])<=180
-  ).slice(0, 1000);
+    a.start_latlng &&
+    Array.isArray(a.start_latlng) &&
+    a.start_latlng.length === 2 &&
+    typeof a.start_latlng[0] === 'number' &&
+    typeof a.start_latlng[1] === 'number' &&
+    a.start_latlng[0] !== 0 &&
+    a.start_latlng[1] !== 0 &&
+    Math.abs(a.start_latlng[0]) <= 90 &&
+    Math.abs(a.start_latlng[1]) <= 180
+  ).slice(0, 2000);
 
-  if(!toPlot.length){
-    _osmMap.setView([51.5,-0.1],5);
-    return;
-  }
-
-  toPlot.forEach(a => {
-    const lat = a.start_latlng[0];
-    const lng = a.start_latlng[1];
-    const col = sportColour(a.sport);
-    const info = sp(a.sport);
-    const dist = a.distance ? (a.distance/1000).toFixed(1)+'km' : '';
-    L.circleMarker([lat, lng], {
-      radius: 5,
-      fillColor: col,
-      color: '#ffffff',
-      weight: 1.5,
-      opacity: 1,
-      fillOpacity: 0.8
-    })
-    .bindPopup(`<div style="font-family:-apple-system,sans-serif;font-size:13px;min-width:160px">
-      <b>${a.name}</b><br>
-      <span style="color:#6e6e73;font-size:11px">${fmtDate(a.start_date_local)}</span><br>
-      <span style="background:${col};color:#fff;border-radius:3px;padding:1px 6px;font-size:11px;margin-top:4px;display:inline-block">${info.label}</span>
-      ${dist?`<span style="font-size:12px;margin-left:4px">${dist}</span>`:''}
-      <span style="font-size:12px;color:#6e6e73;margin-left:4px">${fmtTime(a.moving_time)}</span>
-    </div>`)
-    .addTo(_osmMarkers);
-  });
-
-  // Fit bounds with padding, max zoom 13
-  try {
-    const bounds = _osmMarkers.getBounds();
-    if(bounds.isValid()){
-      _osmMap.fitBounds(bounds, {padding:[40,40], maxZoom:12, animate:false});
-    } else {
-      _osmMap.setView([51.5,-0.1],5);
+  // Wait until the map container has real pixel dimensions before initialising
+  // (it may be zero-size if the tab CSS transition hasn't completed)
+  let attempts = 0;
+  function tryInit(){
+    const rect = mapEl.getBoundingClientRect();
+    if((rect.width === 0 || rect.height === 0) && attempts < 30){
+      attempts++;
+      setTimeout(tryInit, 50);
+      return;
     }
-  } catch(e) {
-    _osmMap.setView([51.5,-0.1],5);
+
+    _osmMap = L.map(mapEl, {
+      zoomControl: true,
+      preferCanvas: true,  // canvas renderer = much faster for many markers
+    });
+
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',{
+      attribution:'© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors © <a href="https://carto.com/attributions">CARTO</a>',
+      subdomains: 'abcd',
+      maxZoom: 19
+    }).addTo(_osmMap);
+
+    _osmMarkers = L.featureGroup().addTo(_osmMap);
+
+    if(!toPlot.length){
+      _osmMap.setView([51.505, -0.09], 5);
+      return;
+    }
+
+    toPlot.forEach(a => {
+      const lat = a.start_latlng[0];
+      const lng = a.start_latlng[1];
+      const col = sportColour(a.sport);
+      const info = sp(a.sport);
+      const dist = a.distance ? (a.distance/1000).toFixed(1)+' km' : '';
+      L.circleMarker([lat, lng], {
+        radius: 5,
+        fillColor: col,
+        color: '#fff',
+        weight: 1.5,
+        opacity: 1,
+        fillOpacity: 0.85
+      })
+      .bindPopup(
+        `<div style="font-family:-apple-system,sans-serif;font-size:13px;min-width:170px;line-height:1.5">` +
+        `<div style="font-weight:600;margin-bottom:2px">${a.name}</div>` +
+        `<div style="color:#6e6e73;font-size:11px;margin-bottom:6px">${fmtDate(a.start_date_local)}</div>` +
+        `<div style="display:flex;align-items:center;gap:6px">` +
+        `<span style="background:${col};color:#fff;border-radius:4px;padding:2px 7px;font-size:11px;font-weight:500">${info.label}</span>` +
+        (dist ? `<span style="font-size:12px;color:#424245">${dist}</span>` : '') +
+        `<span style="font-size:12px;color:#6e6e73">${fmtTime(a.moving_time)}</span>` +
+        `</div></div>`,
+        { maxWidth: 220 }
+      )
+      .addTo(_osmMarkers);
+    });
+
+    // Fit map to markers
+    try{
+      const bounds = _osmMarkers.getBounds();
+      if(bounds.isValid()){
+        _osmMap.fitBounds(bounds, { padding:[50,50], maxZoom:13, animate:false });
+      } else {
+        _osmMap.setView([51.505,-0.09], 5);
+      }
+    }catch(e){
+      _osmMap.setView([51.505,-0.09], 5);
+    }
+
+    // One final size correction after layout settles
+    setTimeout(()=>{
+      if(!_osmMap) return;
+      _osmMap.invalidateSize({ animate:false });
+      try{
+        const b = _osmMarkers.getBounds();
+        if(b.isValid()) _osmMap.fitBounds(b,{padding:[50,50],maxZoom:13,animate:false});
+      }catch(e){}
+    }, 200);
   }
 
-  // Fix map size after tab becomes visible
-  setTimeout(() => {
-    _osmMap.invalidateSize();
-    try{
-      const b = _osmMarkers.getBounds();
-      if(b.isValid()) _osmMap.fitBounds(b, {padding:[40,40], maxZoom:12, animate:false});
-    }catch(e){}
-  }, 300);
+  tryInit();
 }
 
 
@@ -2079,6 +2112,8 @@ function renderMonth(yr, mo){
 }
 
 function switchTab(name,btn){
+  // Destroy map when leaving places tab — ensures clean reinit with correct dimensions
+  if(name !== 'places') destroyOSMMap();
   document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
   document.querySelectorAll('.tab-content').forEach(t=>t.classList.remove('active'));
   btn.classList.add('active');
@@ -2088,7 +2123,7 @@ function switchTab(name,btn){
   if(name==='activities') { populateActFilters._done || (populateActFilters(), populateActFilters._done=true); filterActivities(); }
   if(name==='milestones') renderMilestones();
   if(name==='gear')       renderGearTimeline();
-  if(name==='places')     { renderPlaces(); setTimeout(()=>{ if(_osmMap){ _osmMap.invalidateSize(); setTimeout(()=>{ _osmMap.invalidateSize(); try{ const b=_osmMarkers.getBounds(); if(b.isValid()) _osmMap.fitBounds(b,{padding:[40,40],maxZoom:12,animate:false}); }catch(e){} },300); } },100); }
+  if(name==='places')     { renderPlaces(); }
   if(name==='home')       renderHomePage();
 }
 
@@ -2160,41 +2195,55 @@ function renderAlltimeStats(){
 function renderMusic(){
   const el = document.getElementById('overview-music');
   if(!el) return;
-  // Extract 🎵 Artist - Album from descriptions
-  const albumCounts = {};
-  
+
+  // Only match lines that start with 🎵 followed by "Band - Album"
+  // e.g. "🎵 Foo Fighters - Sonic Highways"
+  const counts = {}; // key: "Artist|||Album" -> count
+
   allActivities.forEach(a=>{
-    const text = [a.description||'', a.name||''].join('\n');
-    musicRe.lastIndex = 0;
-    let m;
-    while((m=musicRe.exec(text))!==null){
-      const artist = m[1].trim();
-      const album  = m[2].trim();
+    const desc = a.description || '';
+    if(!desc.includes('🎵')) return; // fast bail
+    desc.split('\n').forEach(line=>{
+      const trimmed = line.trim();
+      if(!trimmed.startsWith('🎵')) return;
+      // Strip the emoji + whitespace, then split on first " - "
+      const rest = trimmed.replace(/^🎵\s*/, '').trim();
+      const dashIdx = rest.indexOf(' - ');
+      if(dashIdx === -1) return;
+      const artist = rest.slice(0, dashIdx).trim();
+      const album  = rest.slice(dashIdx + 3).trim();
       if(artist && album){
         const key = `${artist}|||${album}`;
-        albumCounts[key] = (albumCounts[key]||0)+1;
+        counts[key] = (counts[key]||0)+1;
       }
-    }
+    });
   });
-  const sorted = Object.entries(albumCounts).sort((a,b)=>b[1]-a[1]).slice(0,20);
+
+  const sorted = Object.entries(counts).sort((a,b)=>b[1]-a[1]).slice(0,20);
   if(!sorted.length){ el.innerHTML=''; return; }
   const maxCount = sorted[0][1];
+
   el.innerHTML = `<div class="chart-card">
-    <div class="chart-header"><div class="chart-title">🎵 Music Listened</div><div class="chart-meta">Top ${sorted.length} albums from activity descriptions</div></div>
-    <div style="display:flex;flex-direction:column;gap:0">
+    <div class="chart-header">
+      <div class="chart-title">🎵 Music Listened</div>
+      <div class="chart-meta">Top ${sorted.length} albums from activity descriptions</div>
+    </div>
+    <div style="display:flex;flex-direction:column">
       ${sorted.map(([key,count],i)=>{
-        const [artist,album]=key.split('|||');
-        const pct=Math.round(count/maxCount*100);
-        return `<div style="display:flex;align-items:center;gap:12px;padding:9px 0;border-bottom:1px solid var(--border-light)">
-          <div style="font-size:13px;font-weight:700;color:var(--text4);width:20px;flex-shrink:0;text-align:center">${i+1}</div>
+        const sep = key.indexOf('|||');
+        const artist = key.slice(0,sep);
+        const album  = key.slice(sep+3);
+        const pct = Math.round(count/maxCount*100);
+        return `<div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border-light)">
+          <div style="font-size:13px;font-weight:700;color:var(--text4);width:22px;flex-shrink:0;text-align:right">${i+1}</div>
           <div style="flex:1;min-width:0">
             <div style="font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${album}</div>
-            <div style="font-size:11px;color:var(--text3)">${artist}</div>
-            <div style="height:3px;background:var(--bg3);border-radius:2px;margin-top:5px;overflow:hidden">
+            <div style="font-size:11px;color:var(--text3);margin-top:1px">${artist}</div>
+            <div style="height:3px;background:var(--bg3);border-radius:2px;margin-top:6px;overflow:hidden">
               <div style="height:100%;width:${pct}%;background:var(--accent);border-radius:2px"></div>
             </div>
           </div>
-          <div style="font-size:12px;font-weight:600;color:var(--text2);flex-shrink:0">${count}×</div>
+          <div style="font-size:13px;font-weight:600;color:var(--text2);flex-shrink:0;min-width:28px;text-align:right">${count}×</div>
         </div>`;
       }).join('')}
     </div>

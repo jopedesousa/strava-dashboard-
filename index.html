@@ -405,7 +405,11 @@ canvas { max-height: 200px !important; }
       <div class="progress-wrap"><div class="progress-bar"><div class="progress-fill" id="progress-fill"></div></div><span id="loading-text"></span></div>
     </div>
     <div id="top-welcome" style="flex:1;text-align:center;font-size:13px;color:var(--text3);font-style:italic;padding:0 8px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"></div>
-    <div class="top-right"><strong id="athlete-name">–</strong><br>Synced <span id="sync-time">–</span></div>
+    <div class="top-right">
+      <strong id="athlete-name">–</strong><br>
+      Synced <span id="sync-time">–</span>
+      <button onclick="clearAllCaches()" title="Force full resync from Strava" style="margin-left:8px;padding:2px 7px;font-size:10px;font-weight:500;color:var(--text3);background:var(--bg3);border:1px solid var(--border-light);border-radius:5px;cursor:pointer;vertical-align:middle">↺ Resync</button>
+    </div>
   </div>
 
   <div class="content" style="max-width:1200px;margin:0 auto;padding:20px 16px">
@@ -536,7 +540,9 @@ canvas { max-height: 200px !important; }
         <span id="places-meta" style="font-size:12px;color:var(--text3)"></span>
       </div>
       <div id="osm-legend" style="margin-bottom:8px"></div>
-      <div id="osm-map" style="width:100%;height:500px;border-radius:12px;border:1px solid var(--border-light);margin-bottom:16px"></div>
+      <div style="border-radius:12px;overflow:hidden;border:1px solid var(--border-light);margin-bottom:16px">
+        <div id="osm-map" style="width:100%;height:500px"></div>
+      </div>
       <div class="geo-grid" id="geo-content"></div>
     </div>
 
@@ -822,49 +828,206 @@ async function launch(token,athlete){
   else renderAll();
 }
 
-async function fetchAll(token,athlete){
-  const tc=document.getElementById('top-center'), pf=document.getElementById('progress-fill'), lt=document.getElementById('loading-text');
-  tc.style.display='flex';
-  // Gear
+// ── Activity & description cache keys ────────────────────────────────────────
+const ACTS_KEY  = 'str_acts_v2';   // JSON array of all cached activities
+const DESC_KEY  = 'str_desc_v2';   // {id: description_string}
+const GEAR_KEY  = 'str_gear_v2';   // {id: {name,distance,type}}
+
+function loadActsCache(){ try{ return JSON.parse(localStorage.getItem(ACTS_KEY)||'[]'); }catch(e){ return []; } }
+function saveActsCache(acts){ try{ localStorage.setItem(ACTS_KEY, JSON.stringify(acts)); }catch(e){} }
+function loadDescCache(){ try{ return JSON.parse(localStorage.getItem(DESC_KEY)||'{}'); }catch(e){ return {}; } }
+function saveDescCache(obj){ try{ localStorage.setItem(DESC_KEY, JSON.stringify(obj)); }catch(e){} }
+function loadGearCache(){ try{ return JSON.parse(localStorage.getItem(GEAR_KEY)||'{}'); }catch(e){ return {}; } }
+function saveGearCache(obj){ try{ localStorage.setItem(GEAR_KEY, JSON.stringify(obj)); }catch(e){} }
+
+function clearAllCaches(){
+  if(!confirm('Clear all cached activities and descriptions?\n\nNext load will re-fetch everything from Strava (this may take a few minutes).')) return;
+  [ACTS_KEY, DESC_KEY, GEAR_KEY, 'str_acts_cache', 'str_desc_cache'].forEach(k=>{
+    try{ localStorage.removeItem(k); }catch(e){}
+  });
+  location.reload();
+}
+
+async function fetchAll(token, athlete){
+  const tc  = document.getElementById('top-center');
+  const pf  = document.getElementById('progress-fill');
+  const lt  = document.getElementById('loading-text');
+  tc.style.display = 'flex';
+
+  // ── Step 1: Load cache and render immediately ─────────────────────────────
+  const cached = loadActsCache();
+  const descCache = loadDescCache();
+  const gearCache = loadGearCache();
+
+  // Merge gear cache into gearMap
+  Object.assign(gearMap, gearCache);
+
+  if(cached.length){
+    // Merge descriptions into cached activities and render right away
+    cached.forEach(a=>{ if(descCache[a.id]) a.description = descCache[a.id]; });
+    allActivities = norm(cached);
+    renderAll();
+    lt.textContent = `${cached.length} cached · checking for new…`;
+    pf.style.width = '20%';
+  }
+
+  // ── Step 2: Refresh gear ──────────────────────────────────────────────────
   try{
-    const r=await fetch('https://www.strava.com/api/v3/athlete',{headers:{'Authorization':`Bearer ${token}`}});
-    const d=await r.json();
-    [...(d.bikes||[]),...(d.shoes||[])].forEach(g=>{
-      const isBike=(d.bikes||[]).some(b=>b.id===g.id);
-      gearMap[g.id]={name:g.name||g.nickname||'Gear',distance:g.distance||0,type:isBike?'bike':'shoes'};
-    });
+    const r = await fetch('https://www.strava.com/api/v3/athlete',
+      {headers:{'Authorization':`Bearer ${token}`}});
+    if(r.ok){
+      const d = await r.json();
+      const fresh = {};
+      [...(d.bikes||[]),...(d.shoes||[])].forEach(g=>{
+        const isBike = (d.bikes||[]).some(b=>b.id===g.id);
+        fresh[g.id] = {name:g.name||g.nickname||'Gear', distance:g.distance||0, type:isBike?'bike':'shoes'};
+      });
+      Object.assign(gearMap, fresh);
+      saveGearCache(gearMap);
+    }
   }catch(e){}
-  // Activities — all pages
-  const acts=[];let page=1;
-  while(true){
-    lt.textContent=`Loading… ${acts.length} activities`;
-    pf.style.width=Math.min(92,page*7)+'%';
-    const r=await fetch(`https://www.strava.com/api/v3/athlete/activities?per_page=100&page=${page}`,{headers:{'Authorization':`Bearer ${token}`}});
-    if(r.status===401){
-      // Token expired mid-fetch — try refresh
+
+  // ── Step 3: Fetch only new activities ────────────────────────────────────
+  // Find the most recent activity's start timestamp to use as "after" param
+  const cachedIds = new Set(cached.map(a=>a.id));
+  const newestTs  = cached.length
+    ? Math.max(...cached.map(a=>Math.floor(new Date(a.start_date).getTime()/1000)))
+    : 0;
+  // Add 1 so we don't re-fetch the exact newest one
+  const afterParam = newestTs > 0 ? `&after=${newestTs}` : '';
+
+  const newActs = [];
+  let page = 1;
+  let hitKnown = false;
+
+  while(!hitKnown){
+    lt.textContent = cached.length
+      ? `Checking for new activities… (${newActs.length} found)`
+      : `Loading… ${newActs.length} activities`;
+    pf.style.width = Math.min(85, 20 + page * 5) + '%';
+
+    let r;
+    try{
+      r = await fetch(
+        `https://www.strava.com/api/v3/athlete/activities?per_page=100&page=${page}${afterParam}`,
+        {headers:{'Authorization':`Bearer ${token}`}}
+      );
+    }catch(e){ break; }
+
+    if(r.status === 401){
       const refresh=getLocal('str_refresh'), cid=getLocal('str_cid'), cs=getLocal('str_cs');
       if(refresh&&cid&&cs){
         lt.textContent='Token expired — refreshing…';
-        try{
-          token = await refreshToken(refresh,cid,cs);
-          continue; // retry this page with new token
-        }catch(e){}
+        try{ token = await refreshToken(refresh,cid,cs); continue; }catch(e){}
       }
       tc.style.display='none';
       showReauthPrompt('Strava session expired');
       return;
     }
-    const b=await r.json();
+
+    const b = await r.json();
     if(!Array.isArray(b)||!b.length) break;
-    acts.push(...b);
-    if(b.length<100) break;
+
+    for(const a of b){
+      if(cachedIds.has(a.id)){ hitKnown=true; break; }
+      newActs.push(a);
+    }
+    if(b.length < 100) break;
     page++;
-    await new Promise(resolve=>setTimeout(resolve,150));
+    await new Promise(res=>setTimeout(res,150));
   }
-  pf.style.width='100%';lt.textContent=`${acts.length} activities loaded`;
-  setTimeout(()=>{tc.style.display='none';},1500);
-  allActivities=norm(acts);
-  renderAll();
+
+  pf.style.width = '90%';
+
+  if(newActs.length){
+    lt.textContent = `${newActs.length} new activities — saving…`;
+    // Merge: new activities go first (most recent), then old cache
+    const merged = [...newActs, ...cached];
+    saveActsCache(merged);
+    // Merge descriptions for new acts from cache
+    merged.forEach(a=>{ if(descCache[a.id]) a.description = descCache[a.id]; });
+    allActivities = norm(merged);
+    renderAll();
+  }
+
+  pf.style.width = '100%';
+  const totalStr = newActs.length
+    ? `✓ ${allActivities.length} activities (${newActs.length} new)`
+    : `✓ ${allActivities.length} activities (up to date)`;
+  lt.textContent = totalStr;
+  setTimeout(()=>{ tc.style.display='none'; }, 2000);
+
+  // ── Step 4: Fetch missing descriptions in background ─────────────────────
+  // Don't await — runs silently without blocking the UI
+  fetchMissingDescriptions(token, descCache);
+}
+
+// Fetches descriptions for ALL activities that don't have one cached yet.
+// Runs in the background, saves progress incrementally every 20 fetches.
+// Safe to call multiple times — skips already-cached IDs.
+let _descFetchRunning = false;
+async function fetchMissingDescriptions(token, descCache){
+  if(_descFetchRunning) return;
+  _descFetchRunning = true;
+
+  const toFetch = allActivities.filter(a => descCache[a.id] === undefined);
+  if(!toFetch.length){ _descFetchRunning=false; return; }
+
+  const lt  = document.getElementById('loading-text');
+  const tc  = document.getElementById('top-center');
+  const pf  = document.getElementById('progress-fill');
+
+  // Show progress bar again for descriptions
+  let done = 0;
+  const total = toFetch.length;
+
+  const showProgress = ()=>{
+    if(!tc) return;
+    tc.style.display = 'flex';
+    pf.style.width = Math.round(done/total*100)+'%';
+    lt.textContent = `Loading descriptions… ${done}/${total}`;
+  };
+  showProgress();
+
+  for(let i=0; i<toFetch.length; i++){
+    const a = toFetch[i];
+    try{
+      const r = await fetch(`https://www.strava.com/api/v3/activities/${a.id}`,
+        {headers:{'Authorization':`Bearer ${token}`}});
+      if(r.status===429){
+        // Rate limited — pause 60s then continue
+        lt.textContent = `Rate limited — pausing 60s… (${done}/${total} done)`;
+        await new Promise(res=>setTimeout(res,61000));
+        i--; continue; // retry same activity
+      }
+      if(r.ok){
+        const d = await r.json();
+        descCache[a.id] = d.description || '';
+        a.description   = d.description || '';
+      }
+    }catch(e){}
+
+    done++;
+    // Save progress every 20 to avoid losing work on page close
+    if(done % 20 === 0){
+      saveDescCache(descCache);
+      // Re-render music chart silently with latest data
+      const musicEl = document.getElementById('overview-music');
+      if(musicEl) renderMusicChart(musicEl);
+      showProgress();
+    }
+    // ~80 requests/min — safe under Strava's 100/15min limit
+    await new Promise(res=>setTimeout(res,800));
+  }
+
+  // Final save
+  saveDescCache(descCache);
+  const musicEl = document.getElementById('overview-music');
+  if(musicEl) renderMusicChart(musicEl);
+
+  lt.textContent = `✓ Descriptions loaded (${total} activities)`;
+  setTimeout(()=>{ if(tc) tc.style.display='none'; }, 2000);
+  _descFetchRunning = false;
 }
 
 // ══════════════════════════════════════════
@@ -1237,7 +1400,7 @@ function renderOverviewSection(){
   renderBarChart(a);
   renderOverviewGear();
   renderAlltimeStats();
-  renderMusic();
+  renderMusic(); // async — renders immediately then fetches if needed
 }
 // ══════════════════════════════════════════
 // FILTERED SET
@@ -1759,8 +1922,8 @@ function initPlacesMap(){
       : '';
   }
 
-  // Create map — container is display:block at this point so dimensions are correct
-  _osmMap = L.map('osm-map', { preferCanvas: true });
+  // Create map — tab is display:block at this point so dimensions are correct
+  _osmMap = L.map('osm-map');
 
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
     attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
@@ -2156,63 +2319,67 @@ function renderAlltimeStats(){
 }
 
 // ── Music from activity descriptions ──
-function renderMusic(){
+let _musicFetching = false; // kept for legacy compat
+
+async function renderMusic(){
   const el = document.getElementById('overview-music');
   if(!el) return;
+  // Merge any desc cache into activities (in case renderMusic called before fetchAll merges)
+  const descCache = loadDescCache();
+  allActivities.forEach(a=>{ if(descCache[a.id] !== undefined && !a.description) a.description = descCache[a.id]; });
+  renderMusicChart(el);
+}
 
-  // Parse every activity description for lines formatted as:
-  //   🎵 Band Name - Album Name
-  // One line per activity, must start with the 🎵 emoji.
-  const counts = {}; // "Band|||Album" => number
+function renderMusicChart(el){
+  // Remove any existing chart + fetch bar, keep them separate
+  const existing = el.querySelector('.music-chart-wrap');
+  if(existing) existing.remove();
 
+  const counts = {};
   allActivities.forEach(a => {
     const raw = (a.description || '').trim();
-    if(!raw) return;
-    // Split on newlines (handles \n and \r\n)
-    const lines = raw.split(/\r?\n/);
-    for(const line of lines){
+    if(!raw || !raw.includes('🎵')) return;
+    raw.split(/\r?\n/).forEach(line => {
       const t = line.trim();
-      // Must start with the music note emoji
-      if(!t.startsWith('🎵')) continue;
-      // Strip the emoji (it's 4 bytes / multiple chars — slice after it)
-      // '🎵' is a single Unicode code point; replace first occurrence
-      const body = t.replace('🎵', '').trim();
-      // Split on first occurrence of ' - '
+      if(!t.startsWith('🎵')) return;
+      const body = t.replace('🎵','').trim();
       const idx = body.indexOf(' - ');
-      if(idx < 1) continue; // no separator found or empty band name
+      if(idx < 1) return;
       const band  = body.slice(0, idx).trim();
       const album = body.slice(idx + 3).trim();
-      if(!band || !album) continue;
+      if(!band || !album) return;
       const key = band + '|||' + album;
-      counts[key] = (counts[key] || 0) + 1;
-    }
+      counts[key] = (counts[key]||0) + 1;
+    });
   });
 
-  const sorted = Object.entries(counts)
-    .sort((a,b) => b[1]-a[1])
-    .slice(0, 20);
+  const sorted = Object.entries(counts).sort((a,b)=>b[1]-a[1]).slice(0,20);
+
+  const wrap = document.createElement('div');
+  wrap.className = 'music-chart-wrap';
 
   if(!sorted.length){
-    el.innerHTML = '';
+    wrap.innerHTML = `<div class="chart-card" style="color:var(--text3);font-size:13px;padding:16px">
+      🎵 No album data yet — descriptions are loading in the background. The chart will appear automatically once they're ready.
+    </div>`;
+    el.prepend(wrap);
     return;
   }
 
   const maxCount = sorted[0][1];
-
-  el.innerHTML = `
+  wrap.innerHTML = `
   <div class="chart-card">
     <div class="chart-header">
       <div class="chart-title">🎵 Albums Listened</div>
       <div class="chart-meta">Top ${sorted.length} · from activity descriptions</div>
     </div>
     <div>
-      ${sorted.map(([key, count], i) => {
-        const sep   = key.indexOf('|||');
-        const band  = key.slice(0, sep);
-        const album = key.slice(sep + 3);
-        const pct   = Math.round(count / maxCount * 100);
-        return `
-        <div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border-light)">
+      ${sorted.map(([key,count],i)=>{
+        const sep = key.indexOf('|||');
+        const band  = key.slice(0,sep);
+        const album = key.slice(sep+3);
+        const pct = Math.round(count/maxCount*100);
+        return `<div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border-light)">
           <div style="font-size:12px;font-weight:700;color:var(--text4);width:20px;text-align:right;flex-shrink:0">${i+1}</div>
           <div style="flex:1;min-width:0">
             <div style="font-size:13px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${album}</div>
@@ -2226,6 +2393,7 @@ function renderMusic(){
       }).join('')}
     </div>
   </div>`;
+  el.prepend(wrap);
 }
 
 // ── Single AI insight at top ──

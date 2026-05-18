@@ -551,9 +551,6 @@ let allActivities=[], gearMap={}, filteredSports=new Set(), filteredGear=new Set
 let currentWeeks=4, actPage=0, cachedFiltered=[], gearKeywords=[];
 const PER_PAGE=30;
 let charts={};
-// Regex to extract music from activity descriptions: lines starting with 🎵 Band - Album
-// Matches: 🎵 Foo Fighters - Sonic Highways
-const musicRe = /^🎵\s+(.+?)\s*-\s*(.+)$/m;
 
 // ══════════════════════════════════════════
 // SPORT SYSTEM
@@ -1669,9 +1666,13 @@ function renderGearTimeline(){
 // PLACES
 // ══════════════════════════════════════════
 function renderPlaces(){
+  renderPlacesLists();
+  setTimeout(initPlacesMap, 0);
+}
+
+function renderPlacesLists(){
   const q=(document.getElementById('places-search')?.value||'').toLowerCase();
 
-  // Count countries and cities
   const countryCounts={}, cityCounts={};
   allActivities.forEach(a=>{
     const loc=extractLocation(a);
@@ -1681,27 +1682,15 @@ function renderPlaces(){
     if(loc.city)    cityCounts[loc.city]=(cityCounts[loc.city]||0)+1;
   });
 
-  // Activities with GPS coordinates
-  let gpsActs = allActivities.filter(a=>a.start_latlng&&a.start_latlng[0]&&a.start_latlng[1]);
-  if(q) gpsActs = gpsActs.filter(a=>{
-    const loc=extractLocation(a);
-    return [(loc.country||''),(loc.city||''),a.name||''].join(' ').toLowerCase().includes(q);
-  });
-
   const withCoords = allActivities.filter(a=>a.start_latlng&&a.start_latlng[0]).length;
   const countries  = Object.entries(countryCounts).sort((a,b)=>b[1]-a[1]);
   const cities     = Object.entries(cityCounts).sort((a,b)=>b[1]-a[1]).slice(0,25);
+
   document.getElementById('places-meta').textContent =
     `${countries.length} countries · ${withCoords} activities with GPS`;
 
-  // Build Leaflet map with legend
-  const legendEl = document.getElementById('osm-legend');
-  if(legendEl) legendEl.innerHTML = buildMapLegend(gpsActs);
-  buildOSMMap(gpsActs);
-
-  // Lists
   function makeList(items, title){
-    if(!items.length) return `<div class="chart-card"><div class="chart-header"><div class="chart-title">${title}</div></div><p style="color:var(--text3);font-size:13px">No location data. Outdoor GPS activities show here.</p></div>`;
+    if(!items.length) return `<div class="chart-card"><div class="chart-header"><div class="chart-title">${title}</div></div><p style="color:var(--text3);font-size:13px">No location data found.</p></div>`;
     const max=items[0][1];
     return `<div class="chart-card"><div class="chart-header"><div class="chart-title">${title}</div><div class="chart-meta">${items.length} total</div></div>
       <div class="geo-list">${items.map(([name,count],i)=>`
@@ -1713,139 +1702,114 @@ function renderPlaces(){
     makeList(countries,'Countries') + makeList(cities,'Cities');
 }
 
+// ── Map ──────────────────────────────────────────────────────────────────────
+
 let _osmMap = null;
-let _osmMarkers = null;
 
 function sportColour(sport){
-  const m={
+  const MAP={
     'Ride':'#fc4c02','Run':'#2563eb','Racquet':'#d97706',
     'WeightTraining':'#7c3aed','Walk':'#0891b2','Skate':'#db2777',
-    'Swim':'#0284c7','Hike':'#16a34a','Other':'#6b7280'
+    'Swim':'#0284c7','Hike':'#16a34a'
   };
-  return m[sport]||'#6b7280';
+  return MAP[sport]||'#6b7280';
 }
 
-function buildMapLegend(acts){
-  const seen=[...new Set(acts.map(a=>a.sport))];
-  if(!seen.length) return '';
-  return `<div style="display:flex;gap:10px;flex-wrap:wrap;font-size:12px;align-items:center;margin-bottom:10px">
-    <span style="color:var(--text3);font-weight:500">Legend:</span>
-    ${seen.map(s=>`<span style="display:flex;align-items:center;gap:5px">
-      <span style="width:10px;height:10px;border-radius:50%;background:${sportColour(s)};display:inline-block;flex-shrink:0"></span>
-      <span>${sp(s).label}</span>
-    </span>`).join('')}
-  </div>`;
-}
-
-// Destroy the map completely and rebuild — only safe way to handle tab visibility timing
 function destroyOSMMap(){
-  if(_osmMap){
-    try{ _osmMap.remove(); }catch(e){}
-    _osmMap = null;
-    _osmMarkers = null;
-  }
+  if(_osmMap){ try{ _osmMap.remove(); }catch(e){} _osmMap=null; }
 }
 
-function buildOSMMap(acts){
-  const mapEl = document.getElementById('osm-map');
-  if(!mapEl || typeof L === 'undefined') return;
-
-  // Always destroy first — prevents stale state from hidden-tab init
+function initPlacesMap(){
+  // At this point the tab has display:block so the container has real dimensions
+  if(typeof L === 'undefined') return;
   destroyOSMMap();
 
-  const toPlot = acts.filter(a=>
-    a.start_latlng &&
-    Array.isArray(a.start_latlng) &&
-    a.start_latlng.length === 2 &&
-    typeof a.start_latlng[0] === 'number' &&
-    typeof a.start_latlng[1] === 'number' &&
-    a.start_latlng[0] !== 0 &&
-    a.start_latlng[1] !== 0 &&
-    Math.abs(a.start_latlng[0]) <= 90 &&
-    Math.abs(a.start_latlng[1]) <= 180
-  ).slice(0, 2000);
+  const mapEl = document.getElementById('osm-map');
+  if(!mapEl) return;
 
-  // Wait until the map container has real pixel dimensions before initialising
-  // (it may be zero-size if the tab CSS transition hasn't completed)
-  let attempts = 0;
-  function tryInit(){
-    const rect = mapEl.getBoundingClientRect();
-    if((rect.width === 0 || rect.height === 0) && attempts < 30){
-      attempts++;
-      setTimeout(tryInit, 50);
-      return;
-    }
-
-    _osmMap = L.map(mapEl, {
-      zoomControl: true,
-      preferCanvas: true,  // canvas renderer = much faster for many markers
-    });
-
-    L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',{
-      attribution:'© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors © <a href="https://carto.com/attributions">CARTO</a>',
-      subdomains: 'abcd',
-      maxZoom: 19
-    }).addTo(_osmMap);
-
-    _osmMarkers = L.featureGroup().addTo(_osmMap);
-
-    if(!toPlot.length){
-      _osmMap.setView([51.505, -0.09], 5);
-      return;
-    }
-
-    toPlot.forEach(a => {
-      const lat = a.start_latlng[0];
-      const lng = a.start_latlng[1];
-      const col = sportColour(a.sport);
-      const info = sp(a.sport);
-      const dist = a.distance ? (a.distance/1000).toFixed(1)+' km' : '';
-      L.circleMarker([lat, lng], {
-        radius: 5,
-        fillColor: col,
-        color: '#fff',
-        weight: 1.5,
-        opacity: 1,
-        fillOpacity: 0.85
-      })
-      .bindPopup(
-        `<div style="font-family:-apple-system,sans-serif;font-size:13px;min-width:170px;line-height:1.5">` +
-        `<div style="font-weight:600;margin-bottom:2px">${a.name}</div>` +
-        `<div style="color:#6e6e73;font-size:11px;margin-bottom:6px">${fmtDate(a.start_date_local)}</div>` +
-        `<div style="display:flex;align-items:center;gap:6px">` +
-        `<span style="background:${col};color:#fff;border-radius:4px;padding:2px 7px;font-size:11px;font-weight:500">${info.label}</span>` +
-        (dist ? `<span style="font-size:12px;color:#424245">${dist}</span>` : '') +
-        `<span style="font-size:12px;color:#6e6e73">${fmtTime(a.moving_time)}</span>` +
-        `</div></div>`,
-        { maxWidth: 220 }
-      )
-      .addTo(_osmMarkers);
-    });
-
-    // Fit map to markers
-    try{
-      const bounds = _osmMarkers.getBounds();
-      if(bounds.isValid()){
-        _osmMap.fitBounds(bounds, { padding:[50,50], maxZoom:13, animate:false });
-      } else {
-        _osmMap.setView([51.505,-0.09], 5);
-      }
-    }catch(e){
-      _osmMap.setView([51.505,-0.09], 5);
-    }
-
-    // One final size correction after layout settles
-    setTimeout(()=>{
-      if(!_osmMap) return;
-      _osmMap.invalidateSize({ animate:false });
-      try{
-        const b = _osmMarkers.getBounds();
-        if(b.isValid()) _osmMap.fitBounds(b,{padding:[50,50],maxZoom:13,animate:false});
-      }catch(e){}
-    }, 200);
+  // Confirm element is actually visible (has dimensions)
+  if(mapEl.offsetWidth === 0){
+    // Fallback: try again next frame
+    requestAnimationFrame(initPlacesMap);
+    return;
   }
 
-  tryInit();
+  // Collect valid GPS activities
+  const toPlot = allActivities.filter(a=>{
+    const ll = a.start_latlng;
+    return ll && Array.isArray(ll) && ll.length===2
+      && typeof ll[0]==='number' && typeof ll[1]==='number'
+      && ll[0]!==0 && ll[1]!==0
+      && ll[0]>=-90 && ll[0]<=90
+      && ll[1]>=-180 && ll[1]<=180;
+  });
+
+  // Build legend
+  const seenSports = [...new Set(toPlot.map(a=>a.sport))];
+  const legendEl = document.getElementById('osm-legend');
+  if(legendEl){
+    legendEl.innerHTML = seenSports.length
+      ? `<div style="display:flex;gap:12px;flex-wrap:wrap;font-size:12px;align-items:center;margin-bottom:8px">
+          <span style="color:var(--text3);font-weight:500">Sport:</span>
+          ${seenSports.map(s=>`<span style="display:flex;align-items:center;gap:5px">
+            <span style="width:10px;height:10px;border-radius:50%;background:${sportColour(s)};display:inline-block"></span>
+            ${sp(s).label}
+          </span>`).join('')}
+        </div>`
+      : '';
+  }
+
+  // Create map — container is display:block at this point so dimensions are correct
+  _osmMap = L.map('osm-map', { preferCanvas: true });
+
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+    maxZoom: 19
+  }).addTo(_osmMap);
+
+  if(!toPlot.length){
+    _osmMap.setView([51.505, -0.09], 5);
+    return;
+  }
+
+  const group = L.featureGroup();
+
+  toPlot.forEach(a=>{
+    const [lat,lng] = a.start_latlng;
+    const col = sportColour(a.sport);
+    const dist = a.distance ? (a.distance/1000).toFixed(1)+' km' : '';
+    const dur  = fmtTime(a.moving_time||0);
+    const date = fmtDate(a.start_date_local);
+
+    L.circleMarker([lat,lng], {
+      radius: 6,
+      fillColor: col,
+      color: '#ffffff',
+      weight: 1.5,
+      opacity: 1,
+      fillOpacity: 0.85
+    })
+    .bindPopup(
+      `<div style="font-family:-apple-system,sans-serif;min-width:160px;line-height:1.6">` +
+      `<div style="font-weight:600;font-size:13px">${a.name||'Activity'}</div>` +
+      `<div style="font-size:11px;color:#888;margin-bottom:4px">${date}</div>` +
+      `<span style="background:${col};color:#fff;border-radius:4px;padding:1px 7px;font-size:11px">${sp(a.sport).label}</span>` +
+      (dist ? `<span style="font-size:12px;margin-left:6px">${dist}</span>` : '') +
+      (dur  ? `<span style="font-size:12px;color:#888;margin-left:4px">${dur}</span>`  : '') +
+      `</div>`
+    )
+    .addTo(group);
+  });
+
+  group.addTo(_osmMap);
+
+  try{
+    const b = group.getBounds();
+    if(b.isValid()) _osmMap.fitBounds(b, {padding:[40,40], maxZoom:12});
+    else            _osmMap.setView([51.505,-0.09], 5);
+  }catch(e){
+    _osmMap.setView([51.505,-0.09], 5);
+  }
 }
 
 
@@ -2112,7 +2076,7 @@ function renderMonth(yr, mo){
 }
 
 function switchTab(name,btn){
-  // Destroy map when leaving places tab — ensures clean reinit with correct dimensions
+  // Destroy map when leaving places tab
   if(name !== 'places') destroyOSMMap();
   document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
   document.querySelectorAll('.tab-content').forEach(t=>t.classList.remove('active'));
@@ -2123,7 +2087,7 @@ function switchTab(name,btn){
   if(name==='activities') { populateActFilters._done || (populateActFilters(), populateActFilters._done=true); filterActivities(); }
   if(name==='milestones') renderMilestones();
   if(name==='gear')       renderGearTimeline();
-  if(name==='places')     { renderPlaces(); }
+  if(name==='places')     { renderPlacesLists(); setTimeout(initPlacesMap, 0); }
   if(name==='home')       renderHomePage();
 }
 
@@ -2196,54 +2160,68 @@ function renderMusic(){
   const el = document.getElementById('overview-music');
   if(!el) return;
 
-  // Only match lines that start with 🎵 followed by "Band - Album"
-  // e.g. "🎵 Foo Fighters - Sonic Highways"
-  const counts = {}; // key: "Artist|||Album" -> count
+  // Parse every activity description for lines formatted as:
+  //   🎵 Band Name - Album Name
+  // One line per activity, must start with the 🎵 emoji.
+  const counts = {}; // "Band|||Album" => number
 
-  allActivities.forEach(a=>{
-    const desc = a.description || '';
-    if(!desc.includes('🎵')) return; // fast bail
-    desc.split('\n').forEach(line=>{
-      const trimmed = line.trim();
-      if(!trimmed.startsWith('🎵')) return;
-      // Strip the emoji + whitespace, then split on first " - "
-      const rest = trimmed.replace(/^🎵\s*/, '').trim();
-      const dashIdx = rest.indexOf(' - ');
-      if(dashIdx === -1) return;
-      const artist = rest.slice(0, dashIdx).trim();
-      const album  = rest.slice(dashIdx + 3).trim();
-      if(artist && album){
-        const key = `${artist}|||${album}`;
-        counts[key] = (counts[key]||0)+1;
-      }
-    });
+  allActivities.forEach(a => {
+    const raw = (a.description || '').trim();
+    if(!raw) return;
+    // Split on newlines (handles \n and \r\n)
+    const lines = raw.split(/\r?\n/);
+    for(const line of lines){
+      const t = line.trim();
+      // Must start with the music note emoji
+      if(!t.startsWith('🎵')) continue;
+      // Strip the emoji (it's 4 bytes / multiple chars — slice after it)
+      // '🎵' is a single Unicode code point; replace first occurrence
+      const body = t.replace('🎵', '').trim();
+      // Split on first occurrence of ' - '
+      const idx = body.indexOf(' - ');
+      if(idx < 1) continue; // no separator found or empty band name
+      const band  = body.slice(0, idx).trim();
+      const album = body.slice(idx + 3).trim();
+      if(!band || !album) continue;
+      const key = band + '|||' + album;
+      counts[key] = (counts[key] || 0) + 1;
+    }
   });
 
-  const sorted = Object.entries(counts).sort((a,b)=>b[1]-a[1]).slice(0,20);
-  if(!sorted.length){ el.innerHTML=''; return; }
+  const sorted = Object.entries(counts)
+    .sort((a,b) => b[1]-a[1])
+    .slice(0, 20);
+
+  if(!sorted.length){
+    el.innerHTML = '';
+    return;
+  }
+
   const maxCount = sorted[0][1];
 
-  el.innerHTML = `<div class="chart-card">
+  el.innerHTML = `
+  <div class="chart-card">
     <div class="chart-header">
-      <div class="chart-title">🎵 Music Listened</div>
-      <div class="chart-meta">Top ${sorted.length} albums from activity descriptions</div>
+      <div class="chart-title">🎵 Albums Listened</div>
+      <div class="chart-meta">Top ${sorted.length} · from activity descriptions</div>
     </div>
-    <div style="display:flex;flex-direction:column">
-      ${sorted.map(([key,count],i)=>{
-        const sep = key.indexOf('|||');
-        const artist = key.slice(0,sep);
-        const album  = key.slice(sep+3);
-        const pct = Math.round(count/maxCount*100);
-        return `<div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border-light)">
-          <div style="font-size:13px;font-weight:700;color:var(--text4);width:22px;flex-shrink:0;text-align:right">${i+1}</div>
+    <div>
+      ${sorted.map(([key, count], i) => {
+        const sep   = key.indexOf('|||');
+        const band  = key.slice(0, sep);
+        const album = key.slice(sep + 3);
+        const pct   = Math.round(count / maxCount * 100);
+        return `
+        <div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border-light)">
+          <div style="font-size:12px;font-weight:700;color:var(--text4);width:20px;text-align:right;flex-shrink:0">${i+1}</div>
           <div style="flex:1;min-width:0">
-            <div style="font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${album}</div>
-            <div style="font-size:11px;color:var(--text3);margin-top:1px">${artist}</div>
-            <div style="height:3px;background:var(--bg3);border-radius:2px;margin-top:6px;overflow:hidden">
+            <div style="font-size:13px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${album}</div>
+            <div style="font-size:11px;color:var(--text3);margin-top:1px">${band}</div>
+            <div style="margin-top:5px;height:3px;background:var(--bg3);border-radius:2px;overflow:hidden">
               <div style="height:100%;width:${pct}%;background:var(--accent);border-radius:2px"></div>
             </div>
           </div>
-          <div style="font-size:13px;font-weight:600;color:var(--text2);flex-shrink:0;min-width:28px;text-align:right">${count}×</div>
+          <div style="font-size:13px;font-weight:600;color:var(--text2);flex-shrink:0;min-width:24px;text-align:right">${count}×</div>
         </div>`;
       }).join('')}
     </div>

@@ -471,6 +471,7 @@ canvas { max-height: 200px !important; }
         <div id="alltime-stats" style="margin-top:16px"></div>
         <!-- Music -->
         <div id="overview-music" style="margin-top:16px"></div>
+        <div style="margin-top:8px"><span id="desc-status-chip" style="display:none;font-size:11px;padding:4px 10px;border-radius:20px;border:1px solid;font-weight:500"></span></div>
       </div>
 
     </div><!-- end tab-home -->
@@ -957,77 +958,156 @@ async function fetchAll(token, athlete){
   lt.textContent = totalStr;
   setTimeout(()=>{ tc.style.display='none'; }, 2000);
 
-  // ── Step 4: Fetch missing descriptions in background ─────────────────────
-  // Don't await — runs silently without blocking the UI
-  fetchMissingDescriptions(token, descCache);
+  // Skip background description fetch on mobile — battery and data intensive
+  const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+  if(!isMobile){
+    fetchMissingDescriptions(token, descCache);
+  } else {
+    // Still show whatever is already cached
+    const musicEl = document.getElementById('overview-music');
+    if(musicEl) renderMusicChart(musicEl);
+    updateDescStatus();
+  }
 }
 
-// Fetches descriptions for ALL activities that don't have one cached yet.
-// Runs in the background, saves progress incrementally every 20 fetches.
-// Safe to call multiple times — skips already-cached IDs.
+// Fetches descriptions in bursts of 90, then waits 15 min before next burst.
+// Saves after every fetch. Leave the tab open and it fills ~360/hour.
+// Strava limits: 100/15min and 1000/day.
 let _descFetchRunning = false;
 async function fetchMissingDescriptions(token, descCache){
   if(_descFetchRunning) return;
   _descFetchRunning = true;
 
+  // Re-read from localStorage to pick up progress from any previous session
+  const saved = loadDescCache();
+  Object.assign(descCache, saved);
+  allActivities.forEach(a=>{ if(descCache[a.id] !== undefined) a.description = descCache[a.id]; });
+
   const toFetch = allActivities.filter(a => descCache[a.id] === undefined);
-  if(!toFetch.length){ _descFetchRunning=false; return; }
+  if(!toFetch.length){ _descFetchRunning=false; updateDescStatus(); return; }
 
-  const lt  = document.getElementById('loading-text');
-  const tc  = document.getElementById('top-center');
-  const pf  = document.getElementById('progress-fill');
+  const lt = document.getElementById('loading-text');
+  const tc = document.getElementById('top-center');
+  const pf = document.getElementById('progress-fill');
 
-  // Show progress bar again for descriptions
-  let done = 0;
-  const total = toFetch.length;
+  const BURST      = 90;   // requests per window
+  const WINDOW_MS  = 15 * 60 * 1000 + 5000; // 15min 5sec to be safe
+  const GAP_MS     = 500; // ms between individual requests within a burst
 
-  const showProgress = ()=>{
-    if(!tc) return;
-    tc.style.display = 'flex';
-    pf.style.width = Math.round(done/total*100)+'%';
-    lt.textContent = `Loading descriptions… ${done}/${total}`;
+  let sessionDone = 0;
+
+  const showProgress = (msg)=>{
+    const total     = allActivities.length;
+    const cached    = total - allActivities.filter(a=>descCache[a.id]===undefined).length;
+    const pct       = Math.round(cached/total*100);
+    if(tc) tc.style.display='flex';
+    if(pf) pf.style.width = pct+'%';
+    if(lt) lt.textContent = msg || `Descriptions: ${cached} / ${total} cached`;
+    updateDescStatus();
   };
+
   showProgress();
 
-  for(let i=0; i<toFetch.length; i++){
-    const a = toFetch[i];
-    try{
-      const r = await fetch(`https://www.strava.com/api/v3/activities/${a.id}`,
-        {headers:{'Authorization':`Bearer ${token}`}});
-      if(r.status===429){
-        // Rate limited — pause 60s then continue
-        lt.textContent = `Rate limited — pausing 60s… (${done}/${total} done)`;
-        await new Promise(res=>setTimeout(res,61000));
-        i--; continue; // retry same activity
-      }
-      if(r.ok){
-        const d = await r.json();
-        descCache[a.id] = d.description || '';
-        a.description   = d.description || '';
-      }
-    }catch(e){}
+  let i = 0;
+  while(i < toFetch.length){
+    // ── burst up to BURST requests ──
+    let burstCount = 0;
+    while(i < toFetch.length && burstCount < BURST){
+      const a = toFetch[i];
+      try{
+        const r = await fetch(`https://www.strava.com/api/v3/activities/${a.id}`,
+          {headers:{'Authorization':`Bearer ${token}`}});
 
-    done++;
-    // Save progress every 20 to avoid losing work on page close
-    if(done % 20 === 0){
+        if(r.status === 429){
+          // Explicitly rate-limited — wait out the window then continue
+          showProgress(`Rate limited — waiting 15 min… (${allActivities.length - toFetch.length + i} / ${allActivities.length} done)`);
+          await new Promise(res=>setTimeout(res, WINDOW_MS));
+          continue; // retry same i
+        }
+        if(r.status === 401){
+          const refresh=getLocal('str_refresh'), cid=getLocal('str_cid'), cs=getLocal('str_cs');
+          if(refresh&&cid&&cs){
+            try{ token = await refreshToken(refresh,cid,cs); continue; }catch(e){}
+          }
+          _descFetchRunning=false; return;
+        }
+        if(r.ok){
+          const d = await r.json();
+          descCache[a.id] = d.description || '';
+          a.description   = descCache[a.id];
+        } else {
+          descCache[a.id] = ''; // mark so we don't retry a broken ID
+          a.description = '';
+        }
+      }catch(e){
+        descCache[a.id] = '';
+        a.description = '';
+      }
+
+      // Save after every single fetch
       saveDescCache(descCache);
-      // Re-render music chart silently with latest data
-      const musicEl = document.getElementById('overview-music');
-      if(musicEl) renderMusicChart(musicEl);
+      i++;
+      burstCount++;
+      sessionDone++;
+
       showProgress();
+      if(burstCount % 10 === 0){
+        const musicEl = document.getElementById('overview-music');
+        if(musicEl) renderMusicChart(musicEl);
+      }
+
+      if(i < toFetch.length && burstCount < BURST){
+        await new Promise(res=>setTimeout(res, GAP_MS));
+      }
     }
-    // ~80 requests/min — safe under Strava's 100/15min limit
-    await new Promise(res=>setTimeout(res,800));
+
+    // ── after burst: wait 15 min before next burst ──
+    if(i < toFetch.length){
+      const remaining = toFetch.length - i;
+      const totalCached = allActivities.length - remaining;
+      // Count down the wait visibly
+      const waitEnd = Date.now() + WINDOW_MS;
+      while(Date.now() < waitEnd){
+        const secsLeft = Math.ceil((waitEnd - Date.now())/1000);
+        const mins = Math.floor(secsLeft/60), secs = secsLeft%60;
+        if(lt) lt.textContent = `Descriptions: ${totalCached}/${allActivities.length} — next burst in ${mins}:${String(secs).padStart(2,'0')}`;
+        if(tc) tc.style.display='flex';
+        await new Promise(res=>setTimeout(res, 1000));
+      }
+    }
   }
 
-  // Final save
+  // All done
   saveDescCache(descCache);
   const musicEl = document.getElementById('overview-music');
   if(musicEl) renderMusicChart(musicEl);
-
-  lt.textContent = `✓ Descriptions loaded (${total} activities)`;
-  setTimeout(()=>{ if(tc) tc.style.display='none'; }, 2000);
+  if(lt) lt.textContent = `✓ All ${allActivities.length} descriptions loaded`;
+  setTimeout(()=>{ if(tc) tc.style.display='none'; }, 3000);
+  updateDescStatus();
   _descFetchRunning = false;
+}
+
+// Updates the persistent status chip so you always know where you are
+function updateDescStatus(){
+  const descCache = loadDescCache();
+  const total   = allActivities.length;
+  if(!total) return;
+  const cached  = Object.keys(descCache).length;
+  const pct     = Math.round(cached/total*100);
+  const el = document.getElementById('desc-status-chip');
+  if(!el) return;
+  if(cached >= total){
+    el.textContent = '🎵 All descriptions loaded';
+    el.style.background = '#f0fdf4';
+    el.style.color = '#16a34a';
+    el.style.borderColor = '#bbf7d0';
+  } else {
+    el.textContent = `🎵 ${cached} / ${total} descriptions (${pct}%)`;
+    el.style.background = 'var(--bg2)';
+    el.style.color = 'var(--text3)';
+    el.style.borderColor = 'var(--border)';
+  }
+  el.style.display = 'inline-block';
 }
 
 // ══════════════════════════════════════════
@@ -2324,10 +2404,10 @@ let _musicFetching = false; // kept for legacy compat
 async function renderMusic(){
   const el = document.getElementById('overview-music');
   if(!el) return;
-  // Merge any desc cache into activities (in case renderMusic called before fetchAll merges)
   const descCache = loadDescCache();
   allActivities.forEach(a=>{ if(descCache[a.id] !== undefined && !a.description) a.description = descCache[a.id]; });
   renderMusicChart(el);
+  updateDescStatus();
 }
 
 function renderMusicChart(el){

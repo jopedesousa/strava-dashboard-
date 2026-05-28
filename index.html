@@ -329,6 +329,13 @@ canvas { max-height: 200px !important; }
 .spinner { width: 20px; height: 20px; border: 2px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin .7s linear infinite; flex-shrink: 0; }
 @keyframes spin { to { transform: rotate(360deg); } }
 
+/* ─── SECTION TOOLTIP ─── */
+.section-tip-wrap { position: relative; display: inline-flex; align-items: center; }
+.section-tip-badge { width: 16px; height: 16px; border-radius: 50%; background: var(--bg3); border: 1px solid var(--border); font-size: 10px; font-weight: 700; color: var(--text3); display: flex; align-items: center; justify-content: center; cursor: default; flex-shrink: 0; }
+.section-tip-box { display: none; position: absolute; left: 50%; transform: translateX(-50%); bottom: calc(100% + 8px); background: rgba(29,29,31,.92); color: #fff; font-size: 12px; line-height: 1.5; padding: 10px 13px; border-radius: 8px; width: 260px; z-index: 999; pointer-events: none; box-shadow: 0 4px 16px rgba(0,0,0,.2); }
+.section-tip-box::after { content: ''; position: absolute; top: 100%; left: 50%; transform: translateX(-50%); border: 6px solid transparent; border-top-color: rgba(29,29,31,.92); }
+.section-tip-wrap:hover .section-tip-box { display: block; }
+
 /* ─── RESPONSIVE ─── */
 @media(max-width:1100px){ .stats-row{grid-template-columns:repeat(3,1fr)} .trends-grid{grid-template-columns:1fr} }
 @media(max-width:900px){ .app-body{grid-template-columns:1fr} .sidebar{position:static;height:auto} .milestones-grid{grid-template-columns:1fr 1fr} .geo-grid{grid-template-columns:1fr} }
@@ -1796,15 +1803,6 @@ function renderTraining(){
   });
   const totalRunTime = zoneTimes.reduce((a,b)=>a+b,0)||1;
 
-  // ── Time-of-day heatmap ───────────────────────────────────────────────────
-  const heatmap = Array.from({length:7},()=>Array(24).fill(0));
-  allActivities.forEach(a=>{
-    const d = parseLocal(a.start_date_local);
-    const dow = (d.getDay()+6)%7;
-    heatmap[dow][d.getHours()]++;
-  });
-  const heatMax2 = Math.max(...heatmap.flat(),1);
-  const days = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
 
   // ── Sport balance ─────────────────────────────────────────────────────────
   const sportList = ['Ride','Run','Racquet','WeightTraining','Walk','Hike'];
@@ -1862,8 +1860,9 @@ function renderTraining(){
     return `<div style="margin:32px 0 16px">
       <div style="display:flex;align-items:center;gap:8px">
         <div class="section-title" style="margin-bottom:0">${t}</div>
-        ${tip?`<div style="position:relative;display:inline-block">
-          <span style="width:16px;height:16px;border-radius:50%;background:var(--bg3);border:1px solid var(--border);font-size:10px;font-weight:700;color:var(--text3);display:flex;align-items:center;justify-content:center;cursor:default;flex-shrink:0" title="${tip.replace(/"/g,'&quot;')}">?</span>
+        ${tip?`<div class="section-tip-wrap">
+          <span class="section-tip-badge">?</span>
+          <div class="section-tip-box">${tip}</div>
         </div>`:''}
       </div>
       ${sub?`<div class="section-sub" style="margin-bottom:0;margin-top:4px">${sub}</div>`:''}
@@ -1944,38 +1943,98 @@ function renderTraining(){
     </div>`;
   }
 
-  // ── Organic heatmap (blurred/gradient approach) ───────────────────────────
-  function organicHeatmap(){
-    // We render the grid but blur adjacent cells by blending neighbours
-    // Then add a CSS blur on a canvas-like div
-    const smoothed = heatmap.map((row,di)=>row.map((v,hi)=>{
-      // Weighted average of self + horizontal neighbours
-      const l=row[hi-1]||0, r2=row[hi+1]||0;
-      return (v*3+l+r2)/5;
-    }));
-    const sMax = Math.max(...smoothed.flat(),1);
-    return `<div style="overflow-x:auto">
-      <div style="display:grid;grid-template-columns:36px repeat(24,1fr);gap:2px;min-width:520px;filter:blur(0)">
-        <div></div>
-        ${Array.from({length:24},(_,h)=>`<div style="font-size:9px;color:var(--text4);text-align:center;padding-bottom:3px">${h===0?'12a':h<12?h+'a':h===12?'12p':(h-12)+'p'}</div>`).join('')}
-        ${smoothed.map((row,di)=>`
-          <div style="font-size:10px;color:var(--text3);display:flex;align-items:center;justify-content:flex-end;padding-right:4px">${days[di]}</div>
-          ${row.map((v,hi)=>{
-            const raw=heatmap[di][hi];
-            const pct=v/sMax;
-            // Interpolate between bg2 and orange using rgba
-            const alpha=pct===0?0:0.08+pct*0.85;
-            const bg=pct===0?'var(--bg2)':`rgba(252,76,2,${alpha.toFixed(2)})`;
-            // Rounded more on strong cells for organic feel
-            const r=Math.round(3+pct*5);
-            return `<div title="${raw} activit${raw===1?'y':'ies'}" style="aspect-ratio:1;border-radius:${r}px;background:${bg};min-height:14px;transition:transform .1s" onmouseenter="this.style.transform='scale(1.3)'" onmouseleave="this.style.transform=''"></div>`;
-          }).join('')}
-        `).join('')}
-      </div>
-      <div style="display:flex;align-items:center;gap:6px;margin-top:10px;font-size:11px;color:var(--text4)">
-        <span>Less</span>
-        ${[0.05,0.25,0.45,0.65,0.85].map(p=>`<div style="width:14px;height:14px;border-radius:${Math.round(3+p*5)}px;background:rgba(252,76,2,${(0.08+p*0.85).toFixed(2)})"></div>`).join('')}
-        <span>More</span>
+  // ── Clock chart — circles at each hour, sized by activity count ─────────
+  function clockChart(){
+    // Aggregate by hour (across all days)
+    const hourCounts = Array(24).fill(0);
+    allActivities.forEach(a=>{
+      const h = parseLocal(a.start_date_local).getHours();
+      hourCounts[h]++;
+    });
+    const maxCount = Math.max(...hourCounts, 1);
+
+    // Find top-3 hours for the legend
+    const ranked = hourCounts.map((c,h)=>({h,c})).sort((a,b)=>b.c-a.c);
+    const topHours = ranked.slice(0,3).filter(x=>x.c>0);
+    function hLabel(h){ return h===0?'12am':h<12?h+'am':h===12?'12pm':(h-12)+'pm'; }
+
+    // SVG clock face
+    const R = 110;     // outer radius of clock ring
+    const CX = 130, CY = 130;
+    const W = 260, H = 260;
+
+    // For each hour, compute circle position and radius
+    // Hours go clockwise from top (12 = top)
+    const dots = hourCounts.map((count, h)=>{
+      const angle = (h / 24) * 2 * Math.PI - Math.PI/2; // 0h = top
+      const x = CX + R * Math.cos(angle);
+      const y = CY + R * Math.sin(angle);
+      const pct = count / maxCount;
+      const r = pct === 0 ? 2 : 3 + pct * 14; // min dot 2px, max ~17px
+      const alpha = pct === 0 ? 0.12 : 0.2 + pct * 0.8;
+      const fill = pct === 0 ? `rgba(200,200,200,0.3)` : `rgba(252,76,2,${alpha.toFixed(2)})`;
+      const stroke = pct === 0 ? 'rgba(0,0,0,0.06)' : `rgba(252,76,2,${Math.min(1,(alpha+0.2)).toFixed(2)})`;
+      const label = hLabel(h);
+      return {x, y, r, fill, stroke, count, label, h};
+    });
+
+    // Hour labels at 0, 6, 12, 18
+    const labelHours = [0, 6, 12, 18];
+    const clockLabels = labelHours.map(h=>{
+      const angle = (h/24)*2*Math.PI - Math.PI/2;
+      const lx = CX + (R+18) * Math.cos(angle);
+      const ly = CY + (R+18) * Math.sin(angle);
+      const lbl = hLabel(h);
+      return `<text x="${lx.toFixed(1)}" y="${ly.toFixed(1)}" text-anchor="middle" dominant-baseline="middle"
+        style="font-size:10px;fill:var(--text4);font-family:Inter,sans-serif">${lbl}</text>`;
+    }).join('');
+
+    // Tick marks for all hours
+    const ticks = Array.from({length:24},(_,h)=>{
+      const angle = (h/24)*2*Math.PI - Math.PI/2;
+      const r1 = R - 6, r2 = R - 2;
+      const x1 = CX + r1*Math.cos(angle), y1 = CY + r1*Math.sin(angle);
+      const x2 = CX + r2*Math.cos(angle), y2 = CY + r2*Math.sin(angle);
+      return `<line x1="${x1.toFixed(1)}" y1="${y1.toFixed(1)}" x2="${x2.toFixed(1)}" y2="${y2.toFixed(1)}" stroke="var(--border)" stroke-width="1"/>`;
+    }).join('');
+
+    const svgDots = dots.map(d=>`
+      <circle cx="${d.x.toFixed(1)}" cy="${d.y.toFixed(1)}" r="${d.r.toFixed(1)}"
+        fill="${d.fill}" stroke="${d.stroke}" stroke-width="1">
+        <title>${d.count} activit${d.count===1?'y':'ies'} at ${d.label}</title>
+      </circle>`).join('');
+
+    // Summary text inside clock
+    const totalActs = allActivities.length;
+    const peakLabel = topHours.length ? hLabel(topHours[0].h) : '–';
+
+    const svg = `<svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" xmlns="http://www.w3.org/2000/svg">
+      <!-- Clock ring -->
+      <circle cx="${CX}" cy="${CY}" r="${R}" fill="none" stroke="var(--border-light)" stroke-width="1.5"/>
+      ${ticks}
+      ${clockLabels}
+      ${svgDots}
+      <!-- Centre text -->
+      <text x="${CX}" y="${CY-10}" text-anchor="middle" style="font-size:22px;font-weight:700;fill:var(--text);font-family:Inter,sans-serif">${totalActs}</text>
+      <text x="${CX}" y="${CY+10}" text-anchor="middle" style="font-size:10px;fill:var(--text3);font-family:Inter,sans-serif">activities</text>
+      <text x="${CX}" y="${CY+25}" text-anchor="middle" style="font-size:10px;fill:var(--text4);font-family:Inter,sans-serif">peak: ${peakLabel}</text>
+    </svg>`;
+
+    // Legend: top hours + explanation
+    const legendRows = topHours.map((x,i)=>{
+      const alpha = 0.2 + (1-i/3)*0.8;
+      return `<div class="clock-legend-row">
+        <div class="clock-legend-dot" style="background:rgba(252,76,2,${alpha.toFixed(2)})"></div>
+        <span><b>${hLabel(x.h)}</b> — ${x.c} activities</span>
+      </div>`;
+    }).join('');
+
+    return `<div class="clock-wrap">
+      <div class="clock-svg-wrap">${svg}</div>
+      <div class="clock-legend">
+        <div style="font-size:12px;font-weight:600;color:var(--text);margin-bottom:4px">Top training hours</div>
+        ${legendRows}
+        <div class="clock-peak-label" style="margin-top:12px">Each circle = one hour of day.<br>Size = how often you train then.</div>
       </div>
     </div>`;
   }
@@ -2102,8 +2161,8 @@ function renderTraining(){
     </div>`;
 
   const heatHTML = `
-    ${sectionTitle('When Do You Train?','Activity count by hour and day of week — hover for count')}
-    ${card(organicHeatmap())}`;
+    ${sectionTitle('When Do You Train?','Activity start time by hour of day — circle size = frequency')}
+    ${card(clockChart())}`;
 
   const balanceHTML = `
     ${sectionTitle('Sport Balance','Hours per month across all sports — last 12 months')}

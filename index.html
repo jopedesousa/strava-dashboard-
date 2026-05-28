@@ -1642,173 +1642,173 @@ function renderYTD(){
 // ══════════════════════════════════════════
 // TRAINING TAB
 // ══════════════════════════════════════════
+
+// Pastel colours for sport balance (easy on the eyes)
+const PASTEL = {
+  'Ride':          '#a8c4e8',  // soft blue
+  'Run':           '#a8d5b5',  // soft green
+  'Racquet':       '#f5c89a',  // soft amber
+  'WeightTraining':'#c9b8e8',  // soft purple
+  'Walk':          '#a8dde8',  // soft teal
+  'Hike':          '#c8e0a8',  // soft lime
+};
+function pastel(sport){ return PASTEL[sport]||'#d0d0d0'; }
+
+// Return ISO week year + week number as {yr, wk} — handles Dec/Jan boundary correctly
+function isoWeekKey(d){
+  const tmp = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+  const dayNum = tmp.getUTCDay() || 7;
+  tmp.setUTCDate(tmp.getUTCDate() + 4 - dayNum);  // Thursday of this week
+  const yr = tmp.getUTCFullYear();
+  const yearStart = new Date(Date.UTC(yr, 0, 1));
+  const wk = Math.ceil((((tmp - yearStart) / 86400000) + 1) / 7);
+  return `${yr}-W${String(wk).padStart(2,'0')}`;
+}
+
 function renderTraining(){
   const el = document.getElementById('training-content');
   if(!el) return;
 
   const today = new Date(); today.setHours(0,0,0,0);
 
-  // ── Helpers ──────────────────────────────────────────────────────────────
-
-  // HR-based Training Stress Score estimate per activity
-  // Uses: TSS ≈ (duration_hrs × average_hr / max_hr) × 100 × intensity_factor
-  // We estimate max HR as 220-age (default 180 if unknown), intensity = avg_hr/max_hr
+  // ── TSS estimate ─────────────────────────────────────────────────────────
   function tss(a){
-    const hrMax = 180; // conservative default; user could set this
+    const hrMax = 180;
     const avgHR = a.average_heartrate || 0;
-    if(!avgHR || !a.moving_time) return (a.moving_time/3600) * 30; // fallback: 30 TSS/hr
+    if(!avgHR || !a.moving_time) return (a.moving_time/3600) * 30;
     const intensity = Math.min(avgHR / hrMax, 1.0);
     return (a.moving_time / 3600) * intensity * intensity * 100;
   }
-
-  // Get date string YYYY-MM-DD for a Date object
   function ds(d){ return d.toISOString().split('T')[0]; }
 
-  // Build a map of date→TSS for the last 365 days
-  const dayTSS = {};
-  const window365Start = new Date(today); window365Start.setDate(window365Start.getDate()-364);
+  // ── CTL/ATL/TSB — seed from full history, display last 90 days ───────────
+  // Build daily TSS map over all history (needed for accurate CTL seed)
+  const dayTSSAll = {};
   allActivities.forEach(a=>{
     const d = parseLocal(a.start_date_local);
-    if(d < window365Start) return;
     const key = ds(d);
-    dayTSS[key] = (dayTSS[key]||0) + tss(a);
+    dayTSSAll[key] = (dayTSSAll[key]||0) + tss(a);
   });
 
-  // CTL (42-day), ATL (7-day), TSB — computed day by day
+  // Walk forward from oldest activity to today to get accurate CTL/ATL
+  const dates = Object.keys(dayTSSAll).sort();
+  const earliest = dates.length ? new Date(dates[0]) : new Date(today);
   let ctl=0, atl=0;
   const ctlK = 1 - Math.exp(-1/42);
   const atlK = 1 - Math.exp(-1/7);
-  const fitnessHistory = []; // {date, ctl, atl, tsb, tss}
-  for(let i=89; i>=0; i--){  // last 90 days displayed
+
+  // Warm up CTL/ATL from earliest date to 90 days ago
+  const displayStart = new Date(today); displayStart.setDate(displayStart.getDate()-89);
+  let cursor = new Date(earliest);
+  while(cursor < displayStart){
+    const t = dayTSSAll[ds(cursor)]||0;
+    ctl = ctl + (t-ctl)*ctlK;
+    atl = atl + (t-atl)*atlK;
+    cursor.setDate(cursor.getDate()+1);
+  }
+
+  // Now build display history (last 90 days)
+  const fitnessHistory = [];
+  for(let i=89; i>=0; i--){
     const d = new Date(today); d.setDate(d.getDate()-i);
-    const t = dayTSS[ds(d)]||0;
-    ctl = ctl + (t - ctl) * ctlK;
-    atl = atl + (t - atl) * atlK;
-    fitnessHistory.push({ date:d, ctl:Math.round(ctl*10)/10, atl:Math.round(atl*10)/10, tsb:Math.round((ctl-atl)*10)/10, tss:Math.round(t) });
+    const t = dayTSSAll[ds(d)]||0;
+    ctl = ctl + (t-ctl)*ctlK;
+    atl = atl + (t-atl)*atlK;
+    fitnessHistory.push({ date:new Date(d), ctl:Math.round(ctl*10)/10, atl:Math.round(atl*10)/10, tsb:Math.round((ctl-atl)*10)/10, tss:Math.round(t) });
   }
   const latest = fitnessHistory[fitnessHistory.length-1];
 
-  // ── CTL/ATL/TSB chart data ────────────────────────────────────────────────
   function tsbColour(tsb){
-    if(tsb > 15)  return '#0284c7'; // fresh / underloaded
-    if(tsb > -5)  return '#16a34a'; // optimal
-    if(tsb > -20) return '#d97706'; // tired but productive
-    return '#dc2626';               // overreached
+    if(tsb > 15)  return '#0284c7';
+    if(tsb > -5)  return '#16a34a';
+    if(tsb > -20) return '#d97706';
+    return '#dc2626';
   }
-  const tsbNow = latest.tsb;
-  const tsbLabel = tsbNow > 15 ? 'Fresh — ready to race or increase load'
-    : tsbNow > -5  ? 'Optimal — good training zone'
-    : tsbNow > -20 ? 'Tired — productive fatigue, watch recovery'
+  const tsbCol   = tsbColour(latest.tsb);
+  const tsbLabel = latest.tsb > 15  ? 'Fresh — ready to race or increase load'
+    : latest.tsb > -5   ? 'Optimal — good training zone'
+    : latest.tsb > -20  ? 'Tired — productive fatigue, watch recovery'
     : 'Overreached — consider a rest day';
-
-  // Build SVG sparklines for CTL/ATL/TSB
-  function sparkSVG(values, colour, height=40, fillArea=false){
-    const w=280, h=height;
-    if(!values.length) return '';
-    const mn=Math.min(...values), mx=Math.max(...values)||1;
-    const pts=values.map((v,i)=>{
-      const x=Math.round(i/(values.length-1)*(w-4)+2);
-      const y=Math.round(h-2-((v-mn)/(mx-mn||1))*(h-4));
-      return `${x},${y}`;
-    });
-    const path=`M${pts.join('L')}`;
-    const fill=fillArea?`<path d="M${pts[0].split(',')[0]},${h} ${path} L${pts[pts.length-1].split(',')[0]},${h}Z" fill="${colour}22"/>`:'' ;
-    return `<svg viewBox="0 0 ${w} ${h}" style="width:100%;height:${h}px;display:block" preserveAspectRatio="none">
-      ${fill}<path d="${path}" stroke="${colour}" stroke-width="2" fill="none"/>
-      <circle cx="${pts[pts.length-1].split(',')[0]}" cy="${pts[pts.length-1].split(',')[1]}" r="3" fill="${colour}"/>
-    </svg>`;
-  }
 
   const ctlVals = fitnessHistory.map(d=>d.ctl);
   const atlVals = fitnessHistory.map(d=>d.atl);
   const tsbVals = fitnessHistory.map(d=>d.tsb);
-  const tsbCol  = tsbColour(tsbNow);
 
-  // ── Weekly load (last 16 weeks) ───────────────────────────────────────────
+  // ── Weekly load — fixed ISO week key ─────────────────────────────────────
   const weeklyLoad = {};
   allActivities.forEach(a=>{
-    const d = parseLocal(a.start_date_local);
-    const wk = getWeek(d);
-    const key = `${d.getFullYear()}-W${String(wk).padStart(2,'0')}`;
+    const key = isoWeekKey(parseLocal(a.start_date_local));
     weeklyLoad[key] = (weeklyLoad[key]||0) + tss(a);
   });
   const wkKeys = Object.keys(weeklyLoad).sort().slice(-16);
   const wkVals = wkKeys.map(k=>Math.round(weeklyLoad[k]));
   const wkMax  = Math.max(...wkVals, 1);
-  // 6-week rolling average
-  const wkAvg = wkVals.map((_,i)=>{
+  const wkAvg  = wkVals.map((_,i)=>{
     const slice = wkVals.slice(Math.max(0,i-5),i+1);
     return Math.round(slice.reduce((a,b)=>a+b,0)/slice.length);
   });
 
-  // ── Commute vs Training split (cycling only) ──────────────────────────────
+  // ── Commute vs Training ───────────────────────────────────────────────────
   const rides = allActivities.filter(a=>a.sport==='Ride');
-  const commuteRides = rides.filter(a=>/commute|commut/i.test(a.name)||a.commute===true);
-  const trainRides   = rides.filter(a=>!(/commute|commut/i.test(a.name)||a.commute===true));
+  const isCommute = a => /commute|commut/i.test(a.name)||a.commute===true;
+  const commuteRides = rides.filter(isCommute);
+  const trainRides   = rides.filter(a=>!isCommute(a));
   const commuteDist  = commuteRides.reduce((s,a)=>s+a.distance,0)/1000;
   const trainDist    = trainRides.reduce((s,a)=>s+a.distance,0)/1000;
-  const totalRideDist= commuteDist+trainDist||1;
-
-  // Monthly commute vs training (last 12 months)
   const rideMonths = {};
   rides.forEach(a=>{
     const d = parseLocal(a.start_date_local);
     const key = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
     if(!rideMonths[key]) rideMonths[key]={commute:0,train:0,label:d.toLocaleDateString('en-GB',{month:'short',year:'2-digit'})};
-    const isCommute = /commute|commut/i.test(a.name)||a.commute===true;
-    rideMonths[key][isCommute?'commute':'train'] += a.distance/1000;
+    rideMonths[key][isCommute(a)?'commute':'train'] += a.distance/1000;
   });
   const rideMonthKeys = Object.keys(rideMonths).sort().slice(-12);
   const rmMax = Math.max(...rideMonthKeys.map(k=>rideMonths[k].commute+rideMonths[k].train),1);
 
-  // ── Running pace zones (last 90 days) ────────────────────────────────────
-  // Zones based on % of threshold pace. We estimate threshold from best recent 20-30min effort.
+  // ── Running pace zones ────────────────────────────────────────────────────
+  const hrMax = 180;
   const recentRuns = allActivities.filter(a=>{
     const d=parseLocal(a.start_date_local);
     return a.sport==='Run' && a.distance>0 && a.moving_time>0 && (today-d)<365*86400000;
   });
-  // Estimate threshold pace: best average pace over runs 20-40min
   const thresholdCandidates = recentRuns.filter(a=>a.moving_time>=1200&&a.moving_time<=2400);
-  let threshPace = 300; // default: 5:00/km
+  let threshPace = 300;
+  let threshHR   = Math.round(hrMax * 0.88); // estimated threshold HR ~88% max
   if(thresholdCandidates.length){
     const best = thresholdCandidates.reduce((b,a)=>
-      (a.moving_time/a.distance*1000) < (b.moving_time/b.distance*1000) ? a : b
-    );
-    threshPace = best.moving_time / (best.distance/1000);
+      (a.moving_time/a.distance*1000)<(b.moving_time/b.distance*1000)?a:b);
+    threshPace = best.moving_time/(best.distance/1000);
+    if(best.average_heartrate) threshHR = Math.round(best.average_heartrate);
   }
-  // Zone definitions (% of threshold pace — lower % = faster):
-  // Z1 Recovery >125%, Z2 Aerobic 110-125%, Z3 Tempo 100-110%, Z4 Threshold 90-100%, Z5 VO2max <90%
+  // Zone definitions with pace range + estimated HR range
   const paceZones = [
-    {name:'Z1 Recovery', min:threshPace*1.25, max:Infinity,   colour:'#94a3b8'},
-    {name:'Z2 Aerobic',  min:threshPace*1.10, max:threshPace*1.25, colour:'#22c55e'},
-    {name:'Z3 Tempo',    min:threshPace*1.00, max:threshPace*1.10, colour:'#f59e0b'},
-    {name:'Z4 Threshold',min:threshPace*0.90, max:threshPace*1.00, colour:'#ef4444'},
-    {name:'Z5 VO2max',   min:0,               max:threshPace*0.90, colour:'#8b5cf6'},
+    {name:'Z1 Recovery', paceMin:threshPace*1.25, paceMax:Infinity,         hrMin:0,                     hrMax:Math.round(threshHR*0.80), colour:'#94a3b8'},
+    {name:'Z2 Aerobic',  paceMin:threshPace*1.10, paceMax:threshPace*1.25,  hrMin:Math.round(threshHR*0.80), hrMax:Math.round(threshHR*0.89), colour:'#22c55e'},
+    {name:'Z3 Tempo',    paceMin:threshPace*1.00, paceMax:threshPace*1.10,  hrMin:Math.round(threshHR*0.89), hrMax:Math.round(threshHR*0.97), colour:'#f59e0b'},
+    {name:'Z4 Threshold',paceMin:threshPace*0.90, paceMax:threshPace*1.00,  hrMin:Math.round(threshHR*0.97), hrMax:Math.round(threshHR*1.03), colour:'#ef4444'},
+    {name:'Z5 VO2max',   paceMin:0,               paceMax:threshPace*0.90,  hrMin:Math.round(threshHR*1.03), hrMax:hrMax,                     colour:'#8b5cf6'},
   ];
-  // Estimate time in each zone from HR if available, else pace
   const zoneTimes = [0,0,0,0,0];
   recentRuns.filter(a=>{const d=parseLocal(a.start_date_local);return (today-d)<90*86400000;}).forEach(a=>{
-    const pace = a.moving_time / (a.distance/1000);
-    const zi = paceZones.findIndex(z=>pace>=z.min&&pace<z.max);
-    if(zi>=0) zoneTimes[zi] += a.moving_time;
+    const pace = a.moving_time/(a.distance/1000);
+    const zi = paceZones.findIndex(z=>pace>=z.paceMin&&pace<z.paceMax);
+    if(zi>=0) zoneTimes[zi]+=a.moving_time;
   });
   const totalRunTime = zoneTimes.reduce((a,b)=>a+b,0)||1;
 
   // ── Time-of-day heatmap ───────────────────────────────────────────────────
-  // Grid: hour of day (0-23) × day of week (Mon-Sun)
   const heatmap = Array.from({length:7},()=>Array(24).fill(0));
   allActivities.forEach(a=>{
     const d = parseLocal(a.start_date_local);
-    const dow = (d.getDay()+6)%7; // 0=Mon
-    const hr  = d.getHours();
-    heatmap[dow][hr]++;
+    const dow = (d.getDay()+6)%7;
+    heatmap[dow][d.getHours()]++;
   });
-  const heatMax = Math.max(...heatmap.flat(),1);
+  const heatMax2 = Math.max(...heatmap.flat(),1);
   const days = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
 
-  // ── Sport balance (last 12 months stacked) ────────────────────────────────
-  const sportMonths = {};
+  // ── Sport balance ─────────────────────────────────────────────────────────
   const sportList = ['Ride','Run','Racquet','WeightTraining','Walk','Hike'];
+  const sportMonths = {};
   allActivities.forEach(a=>{
     const d = parseLocal(a.start_date_local);
     const key = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
@@ -1818,132 +1818,176 @@ function renderTraining(){
   const smKeys = Object.keys(sportMonths).sort().slice(-12);
   const smMax  = Math.max(...smKeys.map(k=>Object.values(sportMonths[k]).reduce((a,b)=>a+b,0)),1);
 
-  // ── Race predictor (Riegel formula) ──────────────────────────────────────
-  // Best effort over ~5km in last 6 months → predict other distances
+  // ── Race predictor ────────────────────────────────────────────────────────
   const raceRuns = allActivities.filter(a=>{
     const d=parseLocal(a.start_date_local);
-    return a.sport==='Run' && a.distance>=3000 && (today-d)<180*86400000;
+    return a.sport==='Run'&&a.distance>=3000&&(today-d)<180*86400000;
   });
   let racePredict = null;
   if(raceRuns.length){
-    // Best pace run of at least 3km
-    const best = raceRuns.reduce((b,a)=>
-      (a.moving_time/a.distance)<(b.moving_time/b.distance)?a:b
-    );
-    const bestPace = best.moving_time / best.distance; // s/m
-    const bestDist = best.distance;
-    // Riegel: t2 = t1 × (d2/d1)^1.06
+    const best = raceRuns.reduce((b,a)=>(a.moving_time/a.distance)<(b.moving_time/b.distance)?a:b);
     const predict = (d2)=>{
-      const t = best.moving_time * Math.pow(d2/bestDist, 1.06);
-      const mins = Math.floor(t/60), secs = Math.round(t%60);
-      const pace = t/d2*1000;
-      return { time:`${mins}:${String(secs).padStart(2,'0')}`, pace:fmtPace(pace) };
+      const t = best.moving_time * Math.pow(d2/best.distance, 1.06);
+      // Format: h:mm:ss if >= 3600s, else m:ss
+      let timeStr;
+      if(t >= 3600){
+        const h=Math.floor(t/3600), m=Math.floor((t%3600)/60), s=Math.round(t%60);
+        timeStr=`${h}h ${String(m).padStart(2,'0')}m`;
+      } else {
+        const m=Math.floor(t/60), s=Math.round(t%60);
+        timeStr=`${m}:${String(s).padStart(2,'0')}`;
+      }
+      return { timeStr, pace:fmtPace(t/d2*1000) };
     };
     racePredict = {
-      basis: `Based on ${(bestDist/1000).toFixed(1)}km in ${fmtTime(best.moving_time)} (${fmtPace(bestPace*1000)}/km) on ${fmtDate(best.start_date_local)}`,
-      distances: [
-        {name:'5K',    dist:5000},
-        {name:'10K',   dist:10000},
-        {name:'Half',  dist:21097},
-        {name:'Marathon',dist:42195},
+      basis:`Based on ${(best.distance/1000).toFixed(1)}km in ${fmtTime(best.moving_time)} (${fmtPace(best.moving_time/(best.distance/1000))}/km) on ${fmtDate(best.start_date_local)}`,
+      distances:[
+        {name:'5K',dist:5000},{name:'10K',dist:10000},{name:'Half',dist:21097},{name:'Marathon',dist:42195}
       ].map(r=>({...r,...predict(r.dist)}))
     };
   }
 
-  // ── Render ────────────────────────────────────────────────────────────────
-
+  // ── Render helpers ────────────────────────────────────────────────────────
+  // Section title with tooltip on hover
+  const tooltips = {
+    'Fitness & Fatigue': 'CTL (Chronic Training Load) measures your fitness built over 42 days. ATL (Acute Training Load) measures recent fatigue over 7 days. TSB (Training Stress Balance) = CTL − ATL, showing your form: positive means fresh, negative means fatigued.',
+    'Weekly Training Load': 'Total Training Stress Score per week, estimated from heart rate data. Shows how your weekly workload varies over time — useful for spotting overreach or undertraining.',
+    'Cycling: Commute vs Training': 'Splits your cycling distance into commutes (detected by "commute" in the activity name) vs intentional training rides. Useful since commute kilometres inflate total distance without the same training benefit.',
+    'Running — Pace Zones': 'Time spent in each pace zone over the last 90 days. Zone 2 (aerobic) should dominate for endurance development. Threshold pace is estimated from your best 20–40 min effort.',
+    'When Do You Train?': 'A heatmap of all your activities by hour of day and day of week. Reveals your training patterns — warmer colour means more activities at that time.',
+    'Sport Balance': 'Hours per month across all sports over the last 12 months. Useful for tracking seasonal shifts and ensuring cross-training variety.',
+  };
   function sectionTitle(t, sub=''){
+    const tip = tooltips[t]||'';
     return `<div style="margin:32px 0 16px">
-      <div class="section-title" style="margin-bottom:${sub?4:0}px">${t}</div>
-      ${sub?`<div class="section-sub" style="margin-bottom:0">${sub}</div>`:''}
+      <div style="display:flex;align-items:center;gap:8px">
+        <div class="section-title" style="margin-bottom:0">${t}</div>
+        ${tip?`<div style="position:relative;display:inline-block">
+          <span style="width:16px;height:16px;border-radius:50%;background:var(--bg3);border:1px solid var(--border);font-size:10px;font-weight:700;color:var(--text3);display:flex;align-items:center;justify-content:center;cursor:default;flex-shrink:0" title="${tip.replace(/"/g,'&quot;')}">?</span>
+        </div>`:''}
+      </div>
+      ${sub?`<div class="section-sub" style="margin-bottom:0;margin-top:4px">${sub}</div>`:''}
+    </div>`;
+  }
+  function card(content){ return `<div class="chart-card">${content}</div>`; }
+
+  // ── Interactive SVG line chart (CTL/ATL/TSB 90-day) ──────────────────────
+  // Uses an HTML overlay approach: invisible hover targets over SVG
+  function interactiveFitnessChart(){
+    const W=800, H=100;
+    const allV=[...ctlVals,...atlVals]; const mx=Math.max(...allV,1);
+    const scaleY=v=>H-4-((v-0)/(mx-0))*(H-8);
+    const scaleX=i=>i/(fitnessHistory.length-1)*(W-4)+2;
+    const smoothPath=(vals)=>{
+      return vals.map((v,i)=>{
+        const x=scaleX(i), y=scaleY(v);
+        if(i===0) return `M${x.toFixed(1)},${y.toFixed(1)}`;
+        const px=scaleX(i-1), py=scaleY(vals[i-1]);
+        const cx=(x+px)/2;
+        return `C${cx.toFixed(1)},${py.toFixed(1)} ${cx.toFixed(1)},${y.toFixed(1)} ${x.toFixed(1)},${y.toFixed(1)}`;
+      }).join('');
+    };
+    const tssMax=Math.max(...fitnessHistory.map(d=>d.tss),1);
+    const bars=fitnessHistory.map((d,i)=>{
+      const bh=(d.tss/tssMax)*(H*0.35);
+      const x=scaleX(i);
+      return `<rect x="${(x-1.5).toFixed(1)}" y="${(H-bh).toFixed(1)}" width="3" height="${bh.toFixed(1)}" fill="#64748b1a"/>`;
+    }).join('');
+    // Hover dot groups (hidden by default, shown via JS)
+    const hoverDots = fitnessHistory.map((d,i)=>{
+      const xc=scaleX(i), yctl=scaleY(d.ctl), yatl=scaleY(d.atl);
+      const label=d.date.toLocaleDateString('en-GB',{day:'numeric',month:'short'});
+      return `<g class="fdot" data-i="${i}" style="opacity:0;pointer-events:none">
+        <circle cx="${xc.toFixed(1)}" cy="${yctl.toFixed(1)}" r="3" fill="#2563eb"/>
+        <circle cx="${xc.toFixed(1)}" cy="${yatl.toFixed(1)}" r="3" fill="#ef4444"/>
+      </g>`;
+    }).join('');
+    return `
+      <div style="position:relative">
+        <svg id="fitness-svg" viewBox="0 0 ${W} ${H}" style="width:100%;height:130px" preserveAspectRatio="none">
+          ${bars}
+          <path d="${smoothPath(ctlVals)}" stroke="#2563eb" stroke-width="2" fill="none"/>
+          <path d="${smoothPath(atlVals)}" stroke="#ef4444" stroke-width="2" fill="none"/>
+          ${hoverDots}
+          ${fitnessHistory.map((d,i)=>{
+            const x=scaleX(i);
+            return `<rect x="${(x-4).toFixed(1)}" y="0" width="8" height="${H}" fill="transparent" class="fhover" data-i="${i}"
+              data-date="${d.date.toLocaleDateString('en-GB',{day:'numeric',month:'short'})}"
+              data-ctl="${d.ctl}" data-atl="${d.atl}" data-tsb="${d.tsb}" data-tss="${d.tss}"/>`;
+          }).join('')}
+        </svg>
+        <div id="fitness-tip" style="position:absolute;pointer-events:none;display:none;background:rgba(0,0,0,.75);color:#fff;font-size:11px;padding:6px 10px;border-radius:6px;white-space:nowrap;top:0;left:0;transform:translate(-50%,-110%)"></div>
+      </div>`;
+  }
+
+  // ── Interactive weekly load bars ──────────────────────────────────────────
+  function weeklyBars(){
+    const barH = 100;
+    return `<div style="position:relative">
+      <div style="display:flex;align-items:flex-end;gap:3px;height:${barH}px" id="wk-bars">
+        ${wkVals.map((v,i)=>{
+          const h=Math.max(2,Math.round(v/wkMax*barH));
+          const isLast=(i===wkVals.length-1);
+          const lbl=wkKeys[i].replace('-W',' W');
+          return `<div style="flex:1;display:flex;flex-direction:column;justify-content:flex-end;height:100%;cursor:default;position:relative" class="wkbar"
+            data-val="${v}" data-lbl="${lbl}" data-avg="${wkAvg[i]}">
+            <div style="width:100%;height:${h}px;background:${isLast?'var(--accent)':'var(--accent)88'};border-radius:3px 3px 0 0;transition:opacity .1s"></div>
+            <!-- avg marker -->
+            <div style="position:absolute;left:0;right:0;top:${barH-Math.round(wkAvg[i]/wkMax*barH)}px;height:1px;background:#64748b55;pointer-events:none"></div>
+          </div>`;
+        }).join('')}
+      </div>
+      <div id="wk-tip" style="position:absolute;pointer-events:none;display:none;background:rgba(0,0,0,.75);color:#fff;font-size:11px;padding:5px 9px;border-radius:6px;white-space:nowrap;top:-36px;transform:translateX(-50%)"></div>
+      <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--text4);margin-top:4px">
+        <span>${wkKeys[0]}</span><span>${wkKeys[wkKeys.length-1]}</span>
+      </div>
     </div>`;
   }
 
-  function card(content, extraStyle=''){
-    return `<div class="chart-card" style="${extraStyle}">${content}</div>`;
+  // ── Organic heatmap (blurred/gradient approach) ───────────────────────────
+  function organicHeatmap(){
+    // We render the grid but blur adjacent cells by blending neighbours
+    // Then add a CSS blur on a canvas-like div
+    const smoothed = heatmap.map((row,di)=>row.map((v,hi)=>{
+      // Weighted average of self + horizontal neighbours
+      const l=row[hi-1]||0, r2=row[hi+1]||0;
+      return (v*3+l+r2)/5;
+    }));
+    const sMax = Math.max(...smoothed.flat(),1);
+    return `<div style="overflow-x:auto">
+      <div style="display:grid;grid-template-columns:36px repeat(24,1fr);gap:2px;min-width:520px;filter:blur(0)">
+        <div></div>
+        ${Array.from({length:24},(_,h)=>`<div style="font-size:9px;color:var(--text4);text-align:center;padding-bottom:3px">${h===0?'12a':h<12?h+'a':h===12?'12p':(h-12)+'p'}</div>`).join('')}
+        ${smoothed.map((row,di)=>`
+          <div style="font-size:10px;color:var(--text3);display:flex;align-items:center;justify-content:flex-end;padding-right:4px">${days[di]}</div>
+          ${row.map((v,hi)=>{
+            const raw=heatmap[di][hi];
+            const pct=v/sMax;
+            // Interpolate between bg2 and orange using rgba
+            const alpha=pct===0?0:0.08+pct*0.85;
+            const bg=pct===0?'var(--bg2)':`rgba(252,76,2,${alpha.toFixed(2)})`;
+            // Rounded more on strong cells for organic feel
+            const r=Math.round(3+pct*5);
+            return `<div title="${raw} activit${raw===1?'y':'ies'}" style="aspect-ratio:1;border-radius:${r}px;background:${bg};min-height:14px;transition:transform .1s" onmouseenter="this.style.transform='scale(1.3)'" onmouseleave="this.style.transform=''"></div>`;
+          }).join('')}
+        `).join('')}
+      </div>
+      <div style="display:flex;align-items:center;gap:6px;margin-top:10px;font-size:11px;color:var(--text4)">
+        <span>Less</span>
+        ${[0.05,0.25,0.45,0.65,0.85].map(p=>`<div style="width:14px;height:14px;border-radius:${Math.round(3+p*5)}px;background:rgba(252,76,2,${(0.08+p*0.85).toFixed(2)})"></div>`).join('')}
+        <span>More</span>
+      </div>
+    </div>`;
   }
 
-  // ── CTL/ATL/TSB section ──────────────────────────────────────────────────
+  // ── Build HTML sections ───────────────────────────────────────────────────
   const fitnessHTML = `
     ${sectionTitle('Fitness & Fatigue','CTL = fitness (42-day load) · ATL = fatigue (7-day load) · TSB = form (CTL−ATL)')}
     <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:16px">
       ${[
-        {label:'Fitness (CTL)',  val:latest.ctl.toFixed(0), sub:'42-day load',  col:'#2563eb', vals:ctlVals},
-        {label:'Fatigue (ATL)',  val:latest.atl.toFixed(0), sub:'7-day load',   col:'#ef4444', vals:atlVals},
-        {label:'Form (TSB)',     val:latest.tsb.toFixed(0), sub:tsbLabel,       col:tsbCol,    vals:tsbVals},
-      ].map(m=>`<div class="chart-card" style="padding:16px">
-        <div style="font-size:11px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">${m.label}</div>
-        <div style="font-size:28px;font-weight:700;color:${m.col};letter-spacing:-1px;line-height:1">${m.val}</div>
-        <div style="font-size:11px;color:var(--text3);margin:4px 0 10px">${m.sub}</div>
-        ${sparkSVG(m.vals, m.col, 36, true)}
-      </div>`).join('')}
-    </div>
-    ${card(`
-      <div class="chart-header"><div class="chart-title">Training Load — Last 90 Days</div>
-        <div style="display:flex;gap:16px;font-size:11px;align-items:center">
-          <span style="display:flex;align-items:center;gap:5px"><span style="width:12px;height:2px;background:#2563eb;display:inline-block"></span>Fitness (CTL)</span>
-          <span style="display:flex;align-items:center;gap:5px"><span style="width:12px;height:2px;background:#ef4444;display:inline-block"></span>Fatigue (ATL)</span>
-        </div>
-      </div>
-      <div style="position:relative;height:120px;margin-top:8px">
-        ${(()=>{
-          const W=100, H=100;
-          const allV=[...ctlVals,...atlVals]; const mn=0, mx=Math.max(...allV,1);
-          const scaleY=v=>H-4-((v-mn)/(mx-mn))*(H-8);
-          const scaleX=i=>i/(fitnessHistory.length-1)*W;
-          const line=(vals,col)=>{
-            const pts=vals.map((v,i)=>`${scaleX(i).toFixed(1)},${scaleY(v).toFixed(1)}`).join('L');
-            return `<path d="M${pts}" stroke="${col}" stroke-width="1.5" fill="none"/>`;
-          };
-          // TSS bars
-          const tssMax=Math.max(...fitnessHistory.map(d=>d.tss),1);
-          const bars=fitnessHistory.map((d,i)=>{
-            const bh=(d.tss/tssMax)*(H*0.4);
-            const x=scaleX(i);
-            return `<rect x="${(x-0.4).toFixed(1)}" y="${(H-bh).toFixed(1)}" width="0.8" height="${bh.toFixed(1)}" fill="#64748b22"/>`;
-          }).join('');
-          return `<svg viewBox="0 0 100 ${H}" style="width:100%;height:120px" preserveAspectRatio="none">
-            ${bars}${line(ctlVals,'#2563eb')}${line(atlVals,'#ef4444')}
-          </svg>`;
-        })()}
-        <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--text4);margin-top:2px">
-          <span>${fitnessHistory[0].date.toLocaleDateString('en-GB',{day:'numeric',month:'short'})}</span>
-          <span>Today</span>
-        </div>
-      </div>
-    `)}`;
-
-  // ── Weekly load section ───────────────────────────────────────────────────
-  const weeklyHTML = `
-    ${sectionTitle('Weekly Training Load','TSS per week with 6-week rolling average')}
-    ${card(`
-      <div class="chart-header"><div class="chart-title">Last 16 Weeks</div>
-        <div class="chart-meta">avg ${Math.round(wkVals.reduce((a,b)=>a+b,0)/wkVals.length)} TSS/week</div>
-      </div>
-      <div style="display:flex;align-items:flex-end;gap:3px;height:100px;margin-top:8px">
-        ${wkVals.map((v,i)=>{
-          const h=Math.round(v/wkMax*100);
-          const avgH=Math.round(wkAvg[i]/wkMax*100);
-          const isRecent=(i>=wkVals.length-1);
-          return `<div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:1px">
-            <div title="Week ${wkKeys[i]}: ${v} TSS" style="width:100%;height:${h}px;background:${isRecent?'var(--accent)':'var(--accent)88'};border-radius:3px 3px 0 0;position:relative">
-            </div>
-          </div>`;
-        }).join('')}
-      </div>
-      <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--text4);margin-top:4px">
-        <span>${wkKeys[0]}</span><span>${wkKeys[wkKeys.length-1]}</span>
-      </div>
-    `)}`;
-
-  // ── Commute vs Training ───────────────────────────────────────────────────
-  const commuteHTML = `
-    ${sectionTitle('Cycling: Commute vs Training','Based on activity names containing "commute"')}
-    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:16px">
-      ${[
-        {label:'Total Rides', val:rides.length, sub:'all time', col:'var(--accent)'},
-        {label:'Commutes',    val:commuteRides.length, sub:`${commuteDist.toFixed(0)} km`, col:'#64748b'},
-        {label:'Training',   val:trainRides.length,   sub:`${trainDist.toFixed(0)} km`,   col:'#fc4c02'},
+        {label:'Fitness (CTL)', val:latest.ctl.toFixed(0), sub:'42-day load',  col:'#2563eb'},
+        {label:'Fatigue (ATL)', val:latest.atl.toFixed(0), sub:'7-day load',   col:'#ef4444'},
+        {label:'Form (TSB)',    val:latest.tsb.toFixed(0), sub:tsbLabel,       col:tsbCol},
       ].map(m=>`<div class="chart-card" style="padding:16px">
         <div style="font-size:11px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">${m.label}</div>
         <div style="font-size:28px;font-weight:700;color:${m.col};letter-spacing:-1px;line-height:1">${m.val}</div>
@@ -1951,9 +1995,48 @@ function renderTraining(){
       </div>`).join('')}
     </div>
     ${card(`
-      <div class="chart-header"><div class="chart-title">Monthly Distance Split — Last 12 Months</div>
+      <div class="chart-header">
+        <div class="chart-title">Training Load — Last 90 Days</div>
+        <div style="display:flex;gap:16px;font-size:11px;align-items:center">
+          <span style="display:flex;align-items:center;gap:5px"><span style="width:12px;height:2px;background:#2563eb;display:inline-block"></span>Fitness (CTL)</span>
+          <span style="display:flex;align-items:center;gap:5px"><span style="width:12px;height:2px;background:#ef4444;display:inline-block"></span>Fatigue (ATL)</span>
+        </div>
+      </div>
+      ${interactiveFitnessChart()}
+      <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--text4);margin-top:4px">
+        <span>${fitnessHistory[0].date.toLocaleDateString('en-GB',{day:'numeric',month:'short'})}</span>
+        <span>Today</span>
+      </div>
+    `)}`;
+
+  const weeklyHTML = `
+    ${sectionTitle('Weekly Training Load','TSS per week · hover bars for details · line = 6-week rolling average')}
+    ${card(`
+      <div class="chart-header">
+        <div class="chart-title">Last 16 Weeks</div>
+        <div class="chart-meta">avg ${Math.round(wkVals.reduce((a,b)=>a+b,0)/wkVals.length)} TSS/week</div>
+      </div>
+      ${weeklyBars()}
+    `)}`;
+
+  const commuteHTML = `
+    ${sectionTitle('Cycling: Commute vs Training','Based on activity names containing "commute"')}
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:16px">
+      ${[
+        {label:'Total Rides', val:rides.length,        sub:'all time',                  col:'var(--accent)'},
+        {label:'Commutes',    val:commuteRides.length,  sub:`${commuteDist.toFixed(0)} km`, col:'#64748b'},
+        {label:'Training',   val:trainRides.length,    sub:`${trainDist.toFixed(0)} km`,   col:'#fc4c02'},
+      ].map(m=>`<div class="chart-card" style="padding:16px">
+        <div style="font-size:11px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">${m.label}</div>
+        <div style="font-size:28px;font-weight:700;color:${m.col};letter-spacing:-1px;line-height:1">${m.val}</div>
+        <div style="font-size:11px;color:var(--text3);margin-top:4px">${m.sub}</div>
+      </div>`).join('')}
+    </div>
+    ${card(`
+      <div class="chart-header">
+        <div class="chart-title">Monthly Distance Split — Last 12 Months</div>
         <div style="display:flex;gap:12px;font-size:11px">
-          <span style="display:flex;align-items:center;gap:4px"><span style="width:10px;height:10px;border-radius:2px;background:#64748b;display:inline-block"></span>Commute</span>
+          <span style="display:flex;align-items:center;gap:4px"><span style="width:10px;height:10px;border-radius:2px;background:#94a3b8;display:inline-block"></span>Commute</span>
           <span style="display:flex;align-items:center;gap:4px"><span style="width:10px;height:10px;border-radius:2px;background:var(--accent);display:inline-block"></span>Training</span>
         </div>
       </div>
@@ -1964,10 +2047,10 @@ function renderTraining(){
           const commuteH=tot>0?Math.round(c/tot*totalH):0;
           const trainH=totalH-commuteH;
           const lbl=rideMonths[k].label;
-          return `<div style="flex:1;display:flex;flex-direction:column;align-items:center">
-            <div title="${lbl}: ${c.toFixed(0)}km commute + ${t.toFixed(0)}km training" style="width:100%;display:flex;flex-direction:column;align-items:stretch;gap:0">
+          return `<div style="flex:1;display:flex;flex-direction:column;align-items:center" title="${lbl}: ${c.toFixed(0)}km commute · ${t.toFixed(0)}km training">
+            <div style="width:100%;display:flex;flex-direction:column;align-items:stretch">
               <div style="height:${trainH}px;background:var(--accent);border-radius:3px 3px 0 0"></div>
-              <div style="height:${commuteH}px;background:#64748b"></div>
+              <div style="height:${commuteH}px;background:#94a3b8"></div>
             </div>
             <div style="font-size:9px;color:var(--text4);margin-top:3px;writing-mode:vertical-lr;transform:rotate(180deg);height:28px">${lbl}</div>
           </div>`;
@@ -1975,22 +2058,29 @@ function renderTraining(){
       </div>
     `)}`;
 
-  // ── Pace zones ────────────────────────────────────────────────────────────
   const runHTML = `
-    ${sectionTitle('Running — Pace Zones','Last 90 days · Zones based on estimated threshold pace')}
+    ${sectionTitle('Running — Pace Zones','Last 90 days · zones based on estimated threshold pace')}
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
       ${card(`
-        <div class="chart-header"><div class="chart-title">Time in Zone</div>
-          <div class="chart-meta">threshold ≈ ${fmtPace(threshPace*1000)}/km</div>
+        <div class="chart-header">
+          <div class="chart-title">Time in Zone</div>
+          <div class="chart-meta">threshold ≈ ${fmtPace(threshPace*1000)}/km · ~${threshHR} bpm</div>
         </div>
-        <div style="display:flex;flex-direction:column;gap:8px;margin-top:8px">
+        <div style="display:flex;flex-direction:column;gap:10px;margin-top:10px">
           ${paceZones.map((z,i)=>{
             const pct=Math.round(zoneTimes[i]/totalRunTime*100);
             const hrs=(zoneTimes[i]/3600).toFixed(1);
+            const paceRange = z.paceMax===Infinity
+              ? `> ${fmtPace(z.paceMin*1000)}/km`
+              : `${fmtPace(z.paceMax*1000)}–${fmtPace(z.paceMin*1000)}/km`;
+            const hrRange = `${z.hrMin}–${Math.min(z.hrMax,hrMax)} bpm`;
             return `<div>
-              <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:3px">
-                <span style="font-weight:500;color:${z.colour}">${z.name}</span>
-                <span style="color:var(--text3)">${hrs}h · ${pct}%</span>
+              <div style="display:flex;justify-content:space-between;align-items:baseline;font-size:12px;margin-bottom:2px">
+                <div>
+                  <span style="font-weight:600;color:${z.colour}">${z.name}</span>
+                  <span style="font-size:10px;color:var(--text4);margin-left:6px">${paceRange} · ${hrRange}</span>
+                </div>
+                <span style="color:var(--text3);white-space:nowrap;margin-left:8px">${hrs}h · ${pct}%</span>
               </div>
               <div style="height:8px;background:var(--bg3);border-radius:4px;overflow:hidden">
                 <div style="height:100%;width:${pct}%;background:${z.colour};border-radius:4px"></div>
@@ -2003,47 +2093,25 @@ function renderTraining(){
         <div class="chart-header"><div class="chart-title">Race Predictor</div></div>
         <div style="font-size:11px;color:var(--text4);margin-bottom:12px">${racePredict.basis}</div>
         ${racePredict.distances.map(r=>`
-          <div style="display:flex;align-items:baseline;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--border-light)">
-            <div style="font-size:13px;font-weight:600;color:var(--text);width:70px">${r.name}</div>
-            <div style="font-size:16px;font-weight:700;color:var(--accent);letter-spacing:-.5px">${r.time}</div>
+          <div style="display:flex;align-items:baseline;justify-content:space-between;padding:9px 0;border-bottom:1px solid var(--border-light)">
+            <div style="font-size:13px;font-weight:600;color:var(--text);width:80px">${r.name}</div>
+            <div style="font-size:17px;font-weight:700;color:var(--accent);letter-spacing:-.5px">${r.timeStr}</div>
             <div style="font-size:11px;color:var(--text3)">${r.pace}/km</div>
           </div>`).join('')}
-      `) : card(`<div style="color:var(--text3);font-size:13px">Race predictor needs at least one run of 3km+ in the last 6 months.</div>`)}
+      `) : card(`<div style="color:var(--text3);font-size:13px;padding:8px 0">Race predictor needs at least one run of 3km+ in the last 6 months.</div>`)}
     </div>`;
 
-  // ── Time-of-day heatmap ───────────────────────────────────────────────────
   const heatHTML = `
-    ${sectionTitle('When Do You Train?','Activity count by hour and day of week')}
-    ${card(`
-      <div style="overflow-x:auto">
-        <div style="display:grid;grid-template-columns:36px repeat(24,1fr);gap:2px;min-width:500px">
-          <div></div>
-          ${Array.from({length:24},(_,h)=>`<div style="font-size:9px;color:var(--text4);text-align:center;padding-bottom:3px">${h===0?'12a':h<12?h+'a':h===12?'12p':(h-12)+'p'}</div>`).join('')}
-          ${heatmap.map((row,di)=>`
-            <div style="font-size:10px;color:var(--text3);display:flex;align-items:center;justify-content:flex-end;padding-right:4px">${days[di]}</div>
-            ${row.map(v=>{
-              const pct=v/heatMax;
-              const bg=pct===0?'var(--bg2)':`rgba(252,76,2,${0.1+pct*0.9})`;
-              return `<div title="${v} activities" style="aspect-ratio:1;border-radius:3px;background:${bg};min-height:14px"></div>`;
-            }).join('')}
-          `).join('')}
-        </div>
-        <div style="display:flex;align-items:center;gap:6px;margin-top:10px;font-size:11px;color:var(--text4)">
-          <span>Less</span>
-          ${[0.1,0.3,0.5,0.7,0.9].map(p=>`<div style="width:14px;height:14px;border-radius:2px;background:rgba(252,76,2,${0.1+p*0.9})"></div>`).join('')}
-          <span>More</span>
-        </div>
-      </div>
-    `)}`;
+    ${sectionTitle('When Do You Train?','Activity count by hour and day of week — hover for count')}
+    ${card(organicHeatmap())}`;
 
-  // ── Sport balance ─────────────────────────────────────────────────────────
   const balanceHTML = `
     ${sectionTitle('Sport Balance','Hours per month across all sports — last 12 months')}
     ${card(`
-      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;font-size:11px">
+      <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px;font-size:11px">
         ${sportList.filter(s=>smKeys.some(k=>sportMonths[k]?.[s]>0)).map(s=>`
-          <span style="display:flex;align-items:center;gap:4px">
-            <span style="width:10px;height:10px;border-radius:2px;background:${sp(s).color};display:inline-block"></span>
+          <span style="display:flex;align-items:center;gap:5px">
+            <span style="width:10px;height:10px;border-radius:2px;background:${pastel(s)};border:1px solid #0002;display:inline-block"></span>
             ${sp(s).label}
           </span>`).join('')}
       </div>
@@ -2052,15 +2120,13 @@ function renderTraining(){
           const data=sportMonths[k]||{};
           const total=Object.values(data).reduce((a,b)=>a+b,0);
           const totalH=Math.round(total/smMax*105);
-          let yOff=0;
           const bars=sportList.filter(s=>data[s]>0).map(s=>{
             const h=Math.round(data[s]/total*totalH);
-            const bar=`<div style="height:${h}px;background:${sp(s).color};width:100%" title="${sp(s).label}: ${data[s].toFixed(1)}h"></div>`;
-            return bar;
+            return `<div style="height:${h}px;background:${pastel(s)};width:100%;border:none" title="${sp(s).label}: ${data[s].toFixed(1)}h"></div>`;
           });
           const lbl=new Date(k+'-01').toLocaleDateString('en-GB',{month:'short'});
-          return `<div style="flex:1;display:flex;flex-direction:column;align-items:stretch">
-            <div style="flex:1;display:flex;flex-direction:column;justify-content:flex-end;gap:0">${bars.join('')}</div>
+          return `<div style="flex:1;display:flex;flex-direction:column;align-items:stretch" title="${k}: ${total.toFixed(1)}h total">
+            <div style="flex:1;display:flex;flex-direction:column;justify-content:flex-end">${bars.join('')}</div>
             <div style="font-size:9px;color:var(--text4);text-align:center;margin-top:3px">${lbl}</div>
           </div>`;
         }).join('')}
@@ -2068,6 +2134,48 @@ function renderTraining(){
     `)}`;
 
   el.innerHTML = fitnessHTML + weeklyHTML + commuteHTML + runHTML + heatHTML + balanceHTML;
+
+  // ── Wire hover interactions after DOM is updated ──────────────────────────
+
+  // Fitness chart hover
+  const fitSvg = el.querySelector('#fitness-svg');
+  const fitTip = el.querySelector('#fitness-tip');
+  if(fitSvg && fitTip){
+    const nPts = fitnessHistory.length;
+    fitSvg.querySelectorAll('.fhover').forEach(r=>{
+      r.addEventListener('mouseenter', function(){
+        const i = +this.dataset.i;
+        fitSvg.querySelectorAll('.fdot').forEach((g,gi)=>g.style.opacity=gi===i?'1':'0');
+        fitTip.style.display = 'block';
+        fitTip.style.left    = (i/(nPts-1)*100)+'%';
+        fitTip.innerHTML     = '<b>'+this.dataset.date+'</b><br>'
+          +'CTL <b style="color:#93c5fd">'+this.dataset.ctl+'</b> · '
+          +'ATL <b style="color:#fca5a5">'+this.dataset.atl+'</b> · '
+          +'TSB <b>'+this.dataset.tsb+'</b>'
+          +(+this.dataset.tss ? '<br>TSS: '+this.dataset.tss : '');
+      });
+      r.addEventListener('mouseleave', ()=>{
+        fitSvg.querySelectorAll('.fdot').forEach(g=>g.style.opacity='0');
+        fitTip.style.display='none';
+      });
+    });
+  }
+
+  // Weekly bars hover
+  const wkWrap = el.querySelector('#wk-bars');
+  const wkTip  = el.querySelector('#wk-tip');
+  if(wkWrap && wkTip){
+    wkWrap.querySelectorAll('.wkbar').forEach(bar=>{
+      bar.addEventListener('mouseenter', function(){
+        const rect     = this.getBoundingClientRect();
+        const wrapRect = wkWrap.getBoundingClientRect();
+        wkTip.style.left    = (rect.left-wrapRect.left+rect.width/2)+'px';
+        wkTip.style.display = 'block';
+        wkTip.innerHTML     = '<b>'+this.dataset.lbl+'</b><br>TSS: <b>'+this.dataset.val+'</b> · 6w avg: '+this.dataset.avg;
+      });
+      bar.addEventListener('mouseleave', ()=>wkTip.style.display='none');
+    });
+  }
 }
 
 // ══════════════════════════════════════════

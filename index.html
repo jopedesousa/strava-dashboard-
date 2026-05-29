@@ -333,6 +333,30 @@ canvas { max-height: 200px !important; }
 .spinner { width: 20px; height: 20px; border: 2px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin .7s linear infinite; flex-shrink: 0; }
 @keyframes spin { to { transform: rotate(360deg); } }
 
+/* ─── HELLO TOOLTIP ─── */
+.hello-word { position: relative; cursor: help; border-bottom: 2px dotted var(--accent); }
+.hello-word::after {
+  content: attr(title);
+  position: absolute;
+  left: 50%; transform: translateX(-50%);
+  bottom: calc(100% + 8px);
+  background: rgba(29,29,31,.92); color: #fff;
+  font-size: 12px; font-weight: 400; letter-spacing: 0;
+  padding: 5px 10px; border-radius: 6px;
+  white-space: nowrap; pointer-events: none;
+  opacity: 0; transition: opacity .15s;
+  z-index: 100;
+}
+.hello-word::before {
+  content: '';
+  position: absolute; left: 50%; transform: translateX(-50%);
+  bottom: calc(100% + 2px);
+  border: 5px solid transparent;
+  border-top-color: rgba(29,29,31,.92);
+  pointer-events: none; opacity: 0; transition: opacity .15s;
+}
+.hello-word:hover::after, .hello-word:hover::before { opacity: 1; }
+
 /* ─── SECTION TOOLTIP ─── */
 .section-tip-wrap { position: relative; display: inline-flex; align-items: center; }
 .section-tip-badge { width: 16px; height: 16px; border-radius: 50%; background: var(--bg3); border: 1px solid var(--border); font-size: 10px; font-weight: 700; color: var(--text3); display: flex; align-items: center; justify-content: center; cursor: default; flex-shrink: 0; }
@@ -546,9 +570,15 @@ canvas { max-height: 200px !important; }
       <div style="margin-bottom:16px">
         <div style="font-size:11px;font-weight:600;color:var(--text4);text-transform:uppercase;letter-spacing:.6px;margin-bottom:8px">Cycling Components</div>
         <div style="display:flex;gap:6px;flex-wrap:wrap" id="gear-preset-chips">
-          ${['tyre','wheel','tube','chain','crankset','pedal','sprocket','brake pad'].map(kw=>
-            `<button class="gear-preset-chip" onclick="toggleGearPreset('${kw}')" data-kw="${kw}">${kw}</button>`
-          ).join('')}
+          <button class="gear-preset-chip" onclick="toggleGearPreset('tyre')" data-kw="tyre">tyre</button>
+          <button class="gear-preset-chip" onclick="toggleGearPreset('wheel')" data-kw="wheel">wheel</button>
+          <button class="gear-preset-chip" onclick="toggleGearPreset('tube')" data-kw="tube">tube</button>
+          <button class="gear-preset-chip" onclick="toggleGearPreset('chain')" data-kw="chain">chain</button>
+          <button class="gear-preset-chip" onclick="toggleGearPreset('crankset')" data-kw="crankset">crankset</button>
+          <button class="gear-preset-chip" onclick="toggleGearPreset('pedal')" data-kw="pedal">pedal</button>
+          <button class="gear-preset-chip" onclick="toggleGearPreset('sprocket')" data-kw="sprocket">sprocket</button>
+          <button class="gear-preset-chip" onclick="toggleGearPreset('brake pad')" data-kw="brake pad">brake pad</button>
+          <button class="gear-preset-chip" onclick="toggleGearPreset('puncture')" data-kw="puncture">puncture</button>
         </div>
       </div>
       <!-- Active keyword pills -->
@@ -2080,7 +2110,7 @@ function renderTraining(){
   }
 
   function buildClockSection(){
-    const allClock  = clockChart(allActivities, '#fc4c02', 'All Activities');
+    const allClock  = clockChart(allActivities, '#2563eb', 'All Activities');
     const rideClock = clockChart(allActivities.filter(a=>a.sport==='Ride'), '#fc4c02', 'Cycling');
     const runClock  = clockChart(allActivities.filter(a=>a.sport==='Run'),  '#34c759', 'Running');
 
@@ -3243,9 +3273,39 @@ async function renderAIInsight(){
   banner.style.display='flex';
   spinner.style.display='block';
   textEl.textContent = '';
+
+  // Multilingual hellos — [word, language name]
+  const hellos = [
+    ['Hello',    'English'],
+    ['Olá',      'Portuguese'],
+    ['Hola',     'Spanish'],
+    ['Bonjour',  'French'],
+    ['Ciao',     'Italian'],
+    ['Hallo',    'German'],
+    ['Merhaba',  'Turkish'],
+    ['Salut',    'Romanian'],
+    ['Ahoj',     'Czech'],
+    ['Hei',      'Norwegian'],
+    ['Hej',      'Swedish'],
+    ['Terve',    'Finnish'],
+    ['Γεια',     'Greek'],
+    ['Привет',   'Russian'],
+    ['Molo',     'Xhosa'],
+    ['こんにちは', 'Japanese'],
+    ['你好',      'Mandarin'],
+    ['안녕하세요', 'Korean'],
+    ['مرحبا',    'Arabic'],
+    ['שלום',     'Hebrew'],
+  ];
+  const [helloWord, helloLang] = hellos[Math.floor(Math.random() * hellos.length)];
+
+  function buildInsightHTML(insightText){
+    return `<span class="hello-word" title="This is Hello in ${helloLang}" style="cursor:help;border-bottom:2px dotted var(--accent);padding-bottom:1px;position:relative">${helloWord}</span> Joao, ${insightText}`;
+  }
+
   const rides=allActivities.filter(a=>a.sport==='Ride');
   const runs=allActivities.filter(a=>a.sport==='Run');
-  const summary=`Athlete: ${document.getElementById('athlete-name').textContent}, 41, architect, cyclist.
+  const summary=`Athlete: Joao, 41, architect, cyclist.
 Total: ${allActivities.length} activities, ${(allActivities.reduce((s,a)=>s+a.distance,0)/1000).toFixed(0)}km, ${Math.floor(allActivities.reduce((s,a)=>s+a.moving_time,0)/3600)}hrs.
 Cycling: ${(rides.reduce((s,a)=>s+a.distance,0)/1000).toFixed(0)}km, ${rides.length} rides.
 Running: ${(runs.reduce((s,a)=>s+a.distance,0)/1000).toFixed(0)}km, ${runs.length} runs, avg ${avgPace(runs)}/km.
@@ -3255,26 +3315,25 @@ Streak: ${getStreak()} days. Years active: ${[...new Set(allActivities.map(a=>pa
       method:'POST', headers:{'Content-Type':'application/json'},
       body: JSON.stringify({
         model:'claude-sonnet-4-20250514', max_tokens:200,
-        system:"You are a sports analyst. Return a single insight — one punchy sentence (max 35 words) revealing something genuinely interesting or surprising about this athlete's data. No preamble, no quotes, just the insight.",
+        system:"You are a sports analyst. Return a single insight — one punchy sentence (max 35 words) revealing something genuinely interesting or surprising about this athlete's data. Do NOT start with a greeting. No preamble, no quotes, just the insight starting directly with the observation.",
         messages:[{role:'user',content:summary}]
       })
     });
     const d = await r.json();
     const text = d.content?.map(x=>x.text||'').join('').trim();
-    if(text){ textEl.textContent = text; }
+    if(text){ textEl.innerHTML = buildInsightHTML(text); }
     else throw new Error('empty');
   } catch(e){
-    // Fallback: rotating local insights
+    const rides2=allActivities.filter(a=>a.sport==='Ride');
     const insights = [
-      `Your ${(allActivities.reduce((s,a)=>s+a.distance,0)/1000).toFixed(0)}km of activity is equivalent to cycling London to Lisbon and back ${Math.floor(allActivities.reduce((s,a)=>s+a.distance,0)/1000/3700)} times.`,
-      `You've spent ${Math.floor(allActivities.reduce((s,a)=>s+a.moving_time,0)/3600)} hours moving — that's ${Math.floor(allActivities.reduce((s,a)=>s+a.moving_time,0)/3600/24)} full days of continuous activity.`,
-      `Your ${rides.length} rides have accumulated ${(rides.reduce((s,a)=>s+a.total_elevation_gain,0)/8849).toFixed(1)}× the height of Everest in elevation gain.`,
-      `At your current pace, you'll cross ${Math.floor((allActivities.reduce((s,a)=>s+a.distance,0)/1000)/1000)*1000 + 1000}km total distance within the next few months.`,
+      `your ${(allActivities.reduce((s,a)=>s+a.distance,0)/1000).toFixed(0)}km of activity is equivalent to cycling London to Lisbon and back ${Math.floor(allActivities.reduce((s,a)=>s+a.distance,0)/1000/3700)} times.`,
+      `you've spent ${Math.floor(allActivities.reduce((s,a)=>s+a.moving_time,0)/3600)} hours moving — that's ${Math.floor(allActivities.reduce((s,a)=>s+a.moving_time,0)/3600/24)} full days of continuous activity.`,
+      `your ${rides2.length} rides have accumulated ${(rides2.reduce((s,a)=>s+a.total_elevation_gain,0)/8849).toFixed(1)}× the height of Everest in elevation gain.`,
+      `at your current pace, you'll cross ${Math.floor((allActivities.reduce((s,a)=>s+a.distance,0)/1000)/1000)*1000 + 1000}km total distance within the next few months.`,
     ];
-    textEl.textContent = insights[Math.floor(Math.random()*insights.length)];
+    textEl.innerHTML = buildInsightHTML(insights[Math.floor(Math.random()*insights.length)]);
   }
   spinner.style.display='none';
-
 }
 
 // ══════════════════════════════════════════

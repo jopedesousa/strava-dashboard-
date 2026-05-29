@@ -278,6 +278,10 @@ canvas { max-height: 200px !important; }
 .ms-val { font-size: 20px; font-weight: 700; color: var(--accent); letter-spacing: -.5px; }
 .ms-desc { font-size: 11px; color: var(--text4); margin-top: 3px; line-height: 1.4; }
 
+.gear-preset-chip { display:inline-flex;align-items:center;padding:5px 12px;border-radius:20px;font-size:12px;font-weight:500;background:var(--bg2);color:var(--text2);border:1.5px solid var(--border);cursor:pointer;transition:all .15s;font-family:inherit; }
+.gear-preset-chip:hover { border-color:var(--accent);color:var(--accent); }
+.gear-preset-chip.active { background:#fff3ee;color:var(--accent);border-color:var(--accent); }
+
 /* ─── GEAR TIMELINE ─── */
 .gear-controls { display: flex; gap: 8px; margin-bottom: 20px; flex-wrap: wrap; }
 .kw-pill { display: inline-flex; align-items: center; gap: 6px; background: #fff3ee; color: var(--accent); border-radius: 20px; padding: 4px 12px; font-size: 12px; font-weight: 500; cursor: pointer; border: none; }
@@ -411,7 +415,6 @@ canvas { max-height: 200px !important; }
     <div class="top-center" id="top-center" style="display:none">
       <div class="progress-wrap"><div class="progress-bar"><div class="progress-fill" id="progress-fill"></div></div><span id="loading-text"></span></div>
     </div>
-    <div id="top-welcome" style="flex:1;text-align:center;font-size:13px;color:var(--text3);font-style:italic;padding:0 8px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"></div>
     <div class="top-right">
       <strong id="athlete-name">–</strong><br>
       Synced <span id="sync-time">–</span>
@@ -422,13 +425,9 @@ canvas { max-height: 200px !important; }
   <div class="content" style="max-width:1200px;margin:0 auto;padding:20px 16px">
 
     <!-- AI INSIGHT BANNER -->
-    <div id="ai-insight-banner" style="display:none;background:linear-gradient(135deg,#fff8f5,#fff3ee);border:1px solid #fed7aa;border-radius:12px;padding:14px 18px;margin-bottom:20px;gap:12px;align-items:flex-start">
-      <span style="font-size:20px;flex-shrink:0">💡</span>
-      <div style="flex:1">
-        <div style="font-size:11px;font-weight:600;color:var(--accent);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">AI Insight</div>
-        <div id="ai-insight-text" style="font-size:13px;color:var(--text2);line-height:1.6"></div>
-      </div>
-      <div class="spinner" id="ai-insight-spinner" style="width:16px;height:16px;border-width:2px;flex-shrink:0;margin-top:2px"></div>
+    <div id="ai-insight-banner" style="display:none;margin-bottom:24px;text-align:center;padding:0 8px">
+      <div id="ai-insight-text" style="font-size:20px;font-weight:800;color:var(--text);line-height:1.35;letter-spacing:-.4px;max-width:680px;margin:0 auto"></div>
+      <div class="spinner" id="ai-insight-spinner" style="width:18px;height:18px;border-width:2px;margin:8px auto 0"></div>
     </div>
 
     <!-- NAVIGATION TABS -->
@@ -536,12 +535,23 @@ canvas { max-height: 200px !important; }
 
     <!-- ═══ GEAR LOG TAB ═══ -->
     <div class="tab-content" id="tab-gear">
-      <div class="section-title">Gear Timeline</div>
-      <div class="section-sub">Distance milestones &amp; notes from activity names, descriptions and private notes.</div>
-      <div class="gear-controls" id="gear-kw-controls">
-        <input class="search-field" id="gear-kw-input" placeholder="Add keyword filter (e.g. tyre, saddle)…" style="flex:1" onkeydown="if(event.key==='Enter')addGearKeyword()">
-        <button class="btn-ghost" style="padding:8px 14px;font-size:12px" onclick="addGearKeyword()">+ Add</button>
+      <div class="section-title">Gear Log</div>
+      <div class="section-sub">Track cycling component changes across your bikes. Click a component below or search for anything.</div>
+      <!-- Search bar -->
+      <div class="gear-controls" style="margin-bottom:12px" id="gear-kw-controls">
+        <input class="search-field" id="gear-kw-input" placeholder="Search component or keyword…" style="flex:1" onkeydown="if(event.key==='Enter')addGearKeyword()">
+        <button class="btn-ghost" style="padding:8px 14px;font-size:12px" onclick="addGearKeyword()">Search</button>
       </div>
+      <!-- Predefined component chips -->
+      <div style="margin-bottom:16px">
+        <div style="font-size:11px;font-weight:600;color:var(--text4);text-transform:uppercase;letter-spacing:.6px;margin-bottom:8px">Cycling Components</div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap" id="gear-preset-chips">
+          ${['tyre','wheel','tube','chain','crankset','pedal','sprocket','brake pad'].map(kw=>
+            `<button class="gear-preset-chip" onclick="toggleGearPreset('${kw}')" data-kw="${kw}">${kw}</button>`
+          ).join('')}
+        </div>
+      </div>
+      <!-- Active keyword pills -->
       <div id="gear-kw-pills" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:16px"></div>
       <div id="gear-timeline-content"></div>
     </div>
@@ -1772,30 +1782,38 @@ function renderTraining(){
   const rideMonthKeys = Object.keys(rideMonths).sort().slice(-12);
   const rmMax = Math.max(...rideMonthKeys.map(k=>rideMonths[k].commute+rideMonths[k].train),1);
 
-  // ── Running pace zones ────────────────────────────────────────────────────
+  // ── Running Heart Rate Zones ──────────────────────────────────────────────
   const recentRuns = allActivities.filter(a=>{
     const d=parseLocal(a.start_date_local);
     return a.sport==='Run' && a.distance>0 && a.moving_time>0 && (today-d)<365*86400000;
   });
+  // Fixed HR zones (Garmin/standard 5-zone model)
+  const hrZones = [
+    {name:'Z1 Warm Up',   hrMin:76,  hrMax:114, colour:'#94a3b8'},
+    {name:'Z2 Easy',      hrMin:115, hrMax:133, colour:'#22c55e'},
+    {name:'Z3 Aerobic',   hrMin:134, hrMax:150, colour:'#3b82f6'},
+    {name:'Z4 Threshold', hrMin:151, hrMax:171, colour:'#f59e0b'},
+    {name:'Z5 Maximum',   hrMin:172, hrMax:999, colour:'#ef4444'},
+  ];
+  // Compute time in each zone from average_heartrate (90 days, runs only)
+  const zoneTimes = hrZones.map(()=>0);
+  let hrRunCount = 0;
+  recentRuns.filter(a=>{const d=parseLocal(a.start_date_local);return (today-d)<90*86400000;}).forEach(a=>{
+    if(!a.average_heartrate) return;
+    hrRunCount++;
+    const zi = hrZones.findIndex(z=>a.average_heartrate>=z.hrMin && a.average_heartrate<=z.hrMax);
+    if(zi>=0) zoneTimes[zi]+=a.moving_time;
+  });
+  const totalRunTime = zoneTimes.reduce((a,b)=>a+b,0)||1;
+
+  // Threshold pace for race predictor still needed
   const thresholdCandidates = recentRuns.filter(a=>a.moving_time>=1200&&a.moving_time<=2400);
   let threshPace = 300;
-  let threshHR   = null; // null = no real HR data available
   if(thresholdCandidates.length){
     const best = thresholdCandidates.reduce((b,a)=>
       (a.moving_time/a.distance*1000)<(b.moving_time/b.distance*1000)?a:b);
     threshPace = best.moving_time/(best.distance/1000);
-    if(best.average_heartrate) threshHR = Math.round(best.average_heartrate);
   }
-  // Zone definitions — pace ranges are derived from threshold pace (Coggan model)
-  // HR ranges shown only if we have real threshold HR from an actual run
-  const hrMax = 185; // used only as a ceiling
-  const paceZones = [
-    {name:'Z1 Recovery', paceMin:threshPace*1.25, paceMax:Infinity,         hrPct:[0,   0.80], colour:'#94a3b8'},
-    {name:'Z2 Aerobic',  paceMin:threshPace*1.10, paceMax:threshPace*1.25,  hrPct:[0.80,0.89], colour:'#22c55e'},
-    {name:'Z3 Tempo',    paceMin:threshPace*1.00, paceMax:threshPace*1.10,  hrPct:[0.89,0.97], colour:'#f59e0b'},
-    {name:'Z4 Threshold',paceMin:threshPace*0.90, paceMax:threshPace*1.00,  hrPct:[0.97,1.03], colour:'#ef4444'},
-    {name:'Z5 VO2max',   paceMin:0,               paceMax:threshPace*0.90,  hrPct:[1.03,1.10], colour:'#8b5cf6'},
-  ];
   const zoneTimes = [0,0,0,0,0];
   recentRuns.filter(a=>{const d=parseLocal(a.start_date_local);return (today-d)<90*86400000;}).forEach(a=>{
     const pace = a.moving_time/(a.distance/1000);
@@ -1852,7 +1870,7 @@ function renderTraining(){
     'Fitness & Fatigue': 'CTL (Chronic Training Load) measures your fitness built over 42 days. ATL (Acute Training Load) measures recent fatigue over 7 days. TSB (Training Stress Balance) = CTL − ATL, showing your form: positive means fresh, negative means fatigued.',
     'Weekly Training Load': 'Total Training Stress Score per week, estimated from heart rate data. Shows how your weekly workload varies over time — useful for spotting overreach or undertraining.',
     'Cycling: Commute vs Training': 'Splits your cycling distance into commutes (detected by "commute" in the activity name) vs intentional training rides. Useful since commute kilometres inflate total distance without the same training benefit.',
-    'Running — Pace Zones': 'Time spent in each pace zone over the last 90 days. Zone 2 (aerobic) should dominate for endurance development. Threshold pace is estimated from your best 20–40 min effort.',
+    'Running — Heart Rate Zones': 'Time spent in each HR zone over the last 90 days, based on average heart rate per run. Z1 Warm Up (76–114), Z2 Easy (115–133), Z3 Aerobic (134–150), Z4 Threshold (151–171), Z5 Maximum (172+). For best results, use a heart rate monitor on your runs.',
     'When Do You Train?': 'A heatmap of all your activities by hour of day and day of week. Reveals your training patterns — warmer colour means more activities at that time.',
     'Sport Balance': 'Hours per month across all sports over the last 12 months. Useful for tracking seasonal shifts and ensuring cross-training variety.',
   };
@@ -2174,28 +2192,24 @@ function renderTraining(){
     `)}`;
 
   const runHTML = `
-    ${sectionTitle('Running — Pace Zones','Last 90 days · zones based on estimated threshold pace')}
+    ${sectionTitle('Running — Heart Rate Zones','Last 90 days · based on activity average HR · zones are fixed standard bands')}
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
       ${card(`
         <div class="chart-header">
           <div class="chart-title">Time in Zone</div>
-          <div class="chart-meta">threshold ≈ ${fmtPace(threshPace*1000)}/km${threshHR ? ` · ${threshHR} bpm (measured)` : ' · no HR data'}</div>
+          <div class="chart-meta">${hrRunCount} runs with HR data · last 90 days</div>
         </div>
+        ${hrRunCount===0 ? `<div style="color:var(--text3);font-size:13px;padding:12px 0">No heart rate data found in your last 90 days of runs. Connect a HR monitor to Strava to see zone breakdown.</div>` : ''}
         <div style="display:flex;flex-direction:column;gap:10px;margin-top:10px">
-          ${paceZones.map((z,i)=>{
+          ${hrZones.map((z,i)=>{
             const pct=Math.round(zoneTimes[i]/totalRunTime*100);
             const hrs=(zoneTimes[i]/3600).toFixed(1);
-            const paceRange = z.paceMax===Infinity
-              ? `> ${fmtPace(z.paceMin*1000)}/km`
-              : `${fmtPace(z.paceMax*1000)}–${fmtPace(z.paceMin*1000)}/km`;
-            const hrRange = threshHR
-              ? `${Math.round(threshHR*z.hrPct[0])}–${Math.min(hrMax,Math.round(threshHR*z.hrPct[1]))} bpm`
-              : null;
+            const hrRange = z.hrMax===999 ? `> ${z.hrMin} bpm` : `${z.hrMin}–${z.hrMax} bpm`;
             return `<div>
               <div style="display:flex;justify-content:space-between;align-items:baseline;font-size:12px;margin-bottom:2px">
                 <div>
                   <span style="font-weight:600;color:${z.colour}">${z.name}</span>
-                  <span style="font-size:10px;color:var(--text4);margin-left:6px">${paceRange}${hrRange ? ' · '+hrRange : ''}</span>
+                  <span style="font-size:10px;color:var(--text4);margin-left:6px">${hrRange}</span>
                 </div>
                 <span style="color:var(--text3);white-space:nowrap;margin-left:8px">${hrs}h · ${pct}%</span>
               </div>
@@ -2205,7 +2219,6 @@ function renderTraining(){
             </div>`;
           }).join('')}
         </div>
-        ${!threshHR ? `<div style="font-size:11px;color:var(--text4);margin-top:12px;padding-top:10px;border-top:1px solid var(--border-light)">💡 HR ranges will appear once Strava has heart rate data from your 20–40 min runs.</div>` : ''}
       `)}
       ${racePredict ? card(`
         <div class="chart-header"><div class="chart-title">Race Predictor</div></div>
@@ -2251,17 +2264,13 @@ function renderTraining(){
       </div>
     `)}`;
 
-  el.innerHTML = fitnessHTML + weeklyHTML + commuteHTML + runHTML + heatHTML + balanceHTML + `
-    <div id="ai-training-tip" style="margin:32px 0 16px">
-      <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">
-        <div class="section-title" style="margin-bottom:0">AI Training Tip</div>
-        <span style="font-size:11px;background:linear-gradient(135deg,#fff3ee,#fde8d8);color:var(--accent);border:1px solid #fed7aa;border-radius:20px;padding:2px 8px;font-weight:600">AI</span>
-      </div>
-      <div id="ai-tip-content" style="background:linear-gradient(135deg,#fff8f5,#fff3ee);border:1px solid #fed7aa;border-radius:var(--radius);padding:18px 20px;display:flex;align-items:flex-start;gap:14px">
+  el.innerHTML = `
+    <div id="ai-training-tip" style="margin:0 0 24px">
+      <div id="ai-tip-content" style="background:linear-gradient(135deg,#fff8f5,#fff3ee);border:1px solid #fed7aa;border-radius:var(--radius);padding:16px 20px;display:flex;align-items:flex-start;gap:14px">
         <div class="spinner" style="width:16px;height:16px;border-width:2px;flex-shrink:0;margin-top:2px"></div>
         <div style="font-size:13px;color:var(--text3)">Analysing your last 7 days…</div>
       </div>
-    </div>`;
+    </div>` + fitnessHTML + weeklyHTML + commuteHTML + runHTML + heatHTML + balanceHTML;
 
   // ── Wire hover interactions after DOM is updated ──────────────────────────
 
@@ -2518,6 +2527,18 @@ function getStreak(){
 // ══════════════════════════════════════════
 // GEAR TIMELINE + KEYWORD SEARCH
 // ══════════════════════════════════════════
+function toggleGearPreset(kw){
+  const chip = document.querySelector(`.gear-preset-chip[data-kw="${kw}"]`);
+  if(gearKeywords.includes(kw)){
+    gearKeywords = gearKeywords.filter(k=>k!==kw);
+    if(chip) chip.classList.remove('active');
+  } else {
+    gearKeywords.push(kw);
+    if(chip) chip.classList.add('active');
+  }
+  renderGearKeywordPills();
+  renderGearTimeline();
+}
 function addGearKeyword(){
   const inp=document.getElementById('gear-kw-input');
   const kw=inp.value.trim().toLowerCase();
@@ -2531,104 +2552,124 @@ function removeGearKeyword(kw){
 }
 function renderGearKeywordPills(){
   const el=document.getElementById('gear-kw-pills');
+  if(!el) return;
   el.innerHTML=gearKeywords.map(kw=>`<button class="kw-pill" onclick="removeGearKeyword('${kw}')"><span>${kw}</span><span class="rm">×</span></button>`).join('');
+  // Sync preset chip active states
+  document.querySelectorAll('.gear-preset-chip').forEach(chip=>{
+    chip.classList.toggle('active', gearKeywords.includes(chip.dataset.kw));
+  });
 }
 
 function renderGearTimeline(){
   const el=document.getElementById('gear-timeline-content');
-  if(!Object.keys(gearMap).length){el.innerHTML='<p style="color:var(--text3);font-size:13px">No gear data available. This requires real Strava data with equipment logged on activities.</p>';return;}
-  const gearKW=/new|replac|chang|swap|install|fit|broke|worn|retir|switch|first|last|km|servic|fix|adjust|clean|tyre|chain|saddle|pedal|shoe|cleat|tape|brake|cassette/i;
-  const gearActs={};
-  allActivities.forEach(a=>{if(!a.gear_id||!gearMap[a.gear_id])return;if(!gearActs[a.gear_id])gearActs[a.gear_id]=[];gearActs[a.gear_id].push(a);});
+  if(!Object.keys(gearMap).length){el.innerHTML='<p style="color:var(--text3);font-size:13px">No gear data available. Log equipment on your Strava activities to build a timeline.</p>';return;}
 
-  // If keywords are set, show keyword-specific summary first
-  let kwSummaryHtml='';
-  if(gearKeywords.length){
-    const kwStats=gearKeywords.map(kw=>{
-      // Find all activities matching keyword (in name, desc, private_note)
-      const matches=allActivities.filter(a=>{
-        const text=[(a.name||''),(a.description||''),(a.private_note||'')].join(' ').toLowerCase();
-        return text.includes(kw);
-      }).sort((a,b)=>new Date(a.start_date_local)-new Date(b.start_date_local));
-      if(!matches.length) return {kw,count:0,intervals:[]};
-      // Distance between consecutive matches
-      const intervals=[];
-      for(let i=0;i<matches.length;i++){
-        const from=matches[i];
-        const to=matches[i+1];
-        // Distance between from and to using gear of the first match
-        const gId=from.gear_id;
-        if(!gId){intervals.push({from,to:to||null,dist:0});continue;}
-        const gActs=(gearActs[gId]||[]).filter(a=>{
-          const d=parseLocal(a.start_date_local);
-          const start=new Date(from.start_date_local);
-          const end=to?new Date(to.start_date_local):new Date();
-          return d>=start&&d<=end;
-        });
-        const dist=gActs.reduce((s,a)=>s+a.distance,0)/1000;
-        intervals.push({from,to:to||null,dist});
-      }
-      const lastDist=intervals.length?intervals[intervals.length-1].dist:0;
-      return {kw,count:matches.length,intervals,lastDist,lastDate:matches[matches.length-1].start_date_local};
-    });
-    kwSummaryHtml=`<div style="margin-bottom:20px">
-      <div style="font-size:13px;font-weight:600;color:var(--text);margin-bottom:12px">Keyword Analysis</div>
-      ${kwStats.map(s=>{
-        if(!s.count) return `<div style="background:var(--bg2);border-radius:var(--radius-sm);padding:12px 16px;margin-bottom:8px;font-size:13px;color:var(--text3)">No results for "<strong>${s.kw}</strong>"</div>`;
-        const intervals=s.intervals.map(iv=>`
-          <div class="timeline-row">
-            <div class="tl-dot" style="background:var(--accent)"></div>
-            <div class="tl-date">${fmtDate(iv.from.start_date_local)}</div>
-            <div class="tl-dist">${iv.dist>0?iv.dist.toFixed(0)+' km':'–'}</div>
-            <div>
-              <div class="tl-name">${iv.from.name}<span class="tl-since">🔑 ${s.kw}</span></div>
-              ${iv.from.description?`<div class="tl-note">${iv.from.description}</div>`:''}
-              ${iv.to?`<div class="tl-note" style="color:var(--text4)">→ ${iv.dist>0?iv.dist.toFixed(0)+' km until next match':''} (next: ${fmtDate(iv.to.start_date_local)})</div>`:`<div class="tl-note" style="color:var(--accent)">→ ${iv.dist.toFixed(0)} km since last occurrence (still counting)</div>`}
-            </div>
-          </div>`).join('');
-        return `<div style="background:var(--surface);border:1px solid var(--border-light);border-radius:var(--radius);padding:16px;margin-bottom:12px">
-          <div style="font-size:13px;font-weight:600;margin-bottom:4px">Keyword: "${s.kw}"</div>
-          <div style="font-size:12px;color:var(--text3);margin-bottom:12px">${s.count} occurrences · <strong style="color:var(--accent)">${s.lastDist.toFixed(0)} km</strong> since last occurrence</div>
-          ${intervals}
-        </div>`;
-      }).join('')}
-    </div>`;
-  }
+  // Only bikes
+  const bikeIds = Object.keys(gearMap).filter(id=>gearMap[id].type==='bike');
+  if(!bikeIds.length){el.innerHTML='<p style="color:var(--text3);font-size:13px">No bikes found in your gear data.</p>';return;}
 
-  let html=kwSummaryHtml;
-  ['bike','shoes'].forEach(type=>{
-    const gIds=Object.keys(gearMap).filter(id=>gearMap[id].type===type);
-    if(!gIds.length) return;
-    html+=`<div style="font-size:15px;font-weight:600;color:var(--text);margin-bottom:16px;margin-top:${html?'24px':'0'}">${type==='bike'?'🚴 Bikes':'👟 Shoes'}</div>`;
-    gIds.forEach(id=>{
+  // Build per-bike activity map (cycling only)
+  const bikeActs={};
+  allActivities.forEach(a=>{
+    if(!a.gear_id||!gearMap[a.gear_id]||gearMap[a.gear_id].type!=='bike') return;
+    if(!bikeActs[a.gear_id]) bikeActs[a.gear_id]=[];
+    bikeActs[a.gear_id].push(a);
+  });
+
+  if(!gearKeywords.length){
+    // No filter: show each bike with odometer and 1000km milestones
+    let html = '';
+    bikeIds.forEach(id=>{
       const g=gearMap[id];
-      const acts=(gearActs[id]||[]).sort((a,b)=>new Date(a.start_date_local)-new Date(b.start_date_local));
+      const acts=(bikeActs[id]||[]).sort((a,b)=>new Date(a.start_date_local)-new Date(b.start_date_local));
       const totalDist=acts.reduce((s,a)=>s+a.distance,0)/1000;
-      const notable=acts.filter(a=>{
-        const text=[(a.name||''),(a.description||''),(a.private_note||'')].join(' ');
-        return gearKW.test(text)&&text.trim().length>3;
-      });
-      // 1000km milestones
       const milestones=[];let cum=0,last=0;
       acts.forEach(a=>{cum+=a.distance/1000;const ms=Math.floor(cum/1000)*1000;if(ms>last&&ms>0){milestones.push({dist:ms,act:a});last=ms;}});
-      const events=[
-        ...milestones.map(m=>({type:'ms',dist:m.dist,date:m.act.start_date_local,name:`${m.dist.toLocaleString()} km milestone`,note:''})),
-        ...notable.map(a=>({type:'note',date:a.start_date_local,name:a.name,note:[a.description,a.private_note].filter(Boolean).join(' · '),dist:acts.filter(x=>new Date(x.start_date_local)<=new Date(a.start_date_local)).reduce((s,x)=>s+x.distance/1000,0)}))
-      ].sort((a,b)=>new Date(a.date)-new Date(b.date));
-      const evHtml=events.length?events.map(ev=>`
-        <div class="timeline-row">
-          <div class="tl-dot" style="background:${ev.type==='ms'?'var(--accent)':'var(--text3)'}"></div>
-          <div class="tl-date">${fmtDate(ev.date)}</div>
-          <div class="tl-dist">${ev.dist?ev.dist.toFixed(0)+' km':''}</div>
-          <div><div class="tl-name">${ev.name}</div>${ev.note?`<div class="tl-note">${ev.note}</div>`:''}</div>
-        </div>`).join(''):'<div style="font-size:12px;color:var(--text4);padding:8px 0">No notes found. Add descriptions to your Strava activities to build a timeline.</div>';
+      const evHtml = milestones.length
+        ? milestones.map(m=>`
+          <div class="timeline-row">
+            <div class="tl-dot" style="background:var(--accent)"></div>
+            <div class="tl-date">${fmtDate(m.act.start_date_local)}</div>
+            <div class="tl-dist">${m.dist.toLocaleString()} km</div>
+            <div><div class="tl-name">🏅 ${m.dist.toLocaleString()} km milestone</div></div>
+          </div>`).join('')
+        : '<div style="font-size:12px;color:var(--text4);padding:8px 0">No milestones yet. Keep riding!</div>';
       html+=`<div class="gear-section">
-        <div class="gear-section-hd">${type==='bike'?'🚴':'👟'} ${g.name}<span class="gear-odo">${totalDist.toFixed(0)} km · ${acts.length} activities</span></div>
+        <div class="gear-section-hd">🚴 ${g.name}<span class="gear-odo">${totalDist.toFixed(0)} km · ${acts.length} rides</span></div>
         ${evHtml}
       </div>`;
     });
+    el.innerHTML = `<div style="font-size:13px;color:var(--text3);margin-bottom:20px">Select a component above or search to see when you last changed it on each bike.</div>` + html;
+    return;
+  }
+
+  // Keywords active: show per-keyword, per-bike results
+  let html = '';
+  gearKeywords.forEach(kw=>{
+    html += `<div style="margin-bottom:28px">
+      <div style="font-size:15px;font-weight:700;color:var(--text);margin-bottom:16px;display:flex;align-items:center;gap:10px">
+        <span style="background:#fff3ee;color:var(--accent);border:1px solid #fed7aa;border-radius:20px;padding:4px 14px;font-size:13px">${kw}</span>
+        <span style="font-size:12px;color:var(--text3);font-weight:400">occurrences grouped by bike</span>
+      </div>`;
+
+    let anyBike = false;
+    bikeIds.forEach(id=>{
+      const g=gearMap[id];
+      const acts=(bikeActs[id]||[]).sort((a,b)=>new Date(a.start_date_local)-new Date(b.start_date_local));
+      const totalDist=acts.reduce((s,a)=>s+a.distance,0)/1000;
+
+      // Find activities matching keyword for this bike
+      const matches = acts.filter(a=>{
+        const text=[(a.name||''),(a.description||''),(a.private_note||'')].join(' ').toLowerCase();
+        return text.includes(kw);
+      });
+      if(!matches.length) return;
+      anyBike = true;
+
+      // Compute distance between consecutive matches
+      const intervals = matches.map((m, i)=>{
+        const next = matches[i+1]||null;
+        const start = new Date(m.start_date_local);
+        const end = next ? new Date(next.start_date_local) : new Date();
+        const distBetween = acts
+          .filter(a=>{ const d=new Date(a.start_date_local); return d>=start&&d<=end; })
+          .reduce((s,a)=>s+a.distance,0)/1000;
+        return {act:m, next, dist:distBetween};
+      });
+
+      const lastOccurrence = matches[matches.length-1];
+      const kmSince = intervals[intervals.length-1].dist;
+
+      html += `<div class="gear-section" style="border:1px solid var(--border-light);border-radius:var(--radius);padding:16px;margin-bottom:12px">
+        <div class="gear-section-hd" style="border-bottom:1px solid var(--border-light);padding-bottom:10px;margin-bottom:12px">
+          🚴 ${g.name}
+          <span class="gear-odo">${totalDist.toFixed(0)} km total · ${matches.length} match${matches.length!==1?'es':''}</span>
+          <span style="font-size:11px;color:var(--accent);background:#fff3ee;border-radius:4px;padding:2px 8px;margin-left:8px">${kmSince.toFixed(0)} km since last</span>
+        </div>
+        ${intervals.map(iv=>`
+          <div class="timeline-row">
+            <div class="tl-dot" style="background:var(--accent)"></div>
+            <div class="tl-date">${fmtDate(iv.act.start_date_local)}</div>
+            <div class="tl-dist">${iv.dist>0?iv.dist.toFixed(0)+' km':'–'}</div>
+            <div>
+              <div class="tl-name">${iv.act.name}</div>
+              ${iv.act.description?`<div class="tl-note">${iv.act.description}</div>`:''}
+              ${iv.act.private_note?`<div class="tl-note" style="color:var(--accent)">🔒 ${iv.act.private_note}</div>`:''}
+              ${iv.next
+                ? `<div class="tl-note" style="color:var(--text4)">→ ${iv.dist.toFixed(0)} km until next change (${fmtDate(iv.next.start_date_local)})</div>`
+                : `<div class="tl-note" style="color:var(--accent)">→ ${kmSince.toFixed(0)} km since this change (still counting)</div>`}
+            </div>
+          </div>`).join('')}
+      </div>`;
+    });
+
+    if(!anyBike){
+      html += `<div style="background:var(--bg2);border-radius:var(--radius-sm);padding:12px 16px;font-size:13px;color:var(--text3)">No activities mentioning "<strong>${kw}</strong>" found on any of your bikes.</div>`;
+    }
+    html += `</div>`;
   });
-  el.innerHTML=html;
+
+  el.innerHTML = html;
 }
 
 // ══════════════════════════════════════════
@@ -2909,7 +2950,7 @@ function renderMonth(yr, mo){
     else curStreak=0;
   }
 
-  // Build calendar grid
+  // Build calendar grid — small circles
   const calCells=[];
   for(let i=0;i<startOffset;i++) calCells.push('<div></div>');
   for(let d=1;d<=daysInMonth;d++){
@@ -2917,15 +2958,15 @@ function renderMonth(yr, mo){
     const dayActs=monthActs.filter(a=>localDateStr(a.start_date_local)===ds);
     const isToday=ds===todayStr;
     const sports=[...new Set(dayActs.map(a=>a.sport))];
-    const bg=sports.length?sportColour(sports[0])+'22':'transparent';
-    const border=isToday?'2px solid var(--accent)':sports.length?`1px solid ${sportColour(sports[0])}66`:'1px solid var(--border-light)';
-    const icons=sports.slice(0,2).map(s=>sp(s).icon).join('');
+    const col = sports.length ? sportColour(sports[0]) : null;
+    const bg = col ? col+'55' : 'transparent';
+    const ring = isToday ? `0 0 0 2px var(--accent)` : 'none';
     const title=dayActs.map(a=>a.name).join(', ')||'';
-    calCells.push(`<div style="aspect-ratio:1;border-radius:8px;background:${bg};border:${border};
-      display:flex;flex-direction:column;align-items:center;justify-content:center;
-      cursor:default;font-size:9px;position:relative" title="${title}">
-      <div style="font-size:10px;color:var(--text3);font-weight:${isToday?700:400}">${d}</div>
-      ${icons?`<div style="font-size:11px;line-height:1">${icons}</div>`:''}
+    calCells.push(`<div style="display:flex;align-items:center;justify-content:center;padding:2px" title="${title}">
+      <div style="width:14px;height:14px;border-radius:50%;background:${bg};box-shadow:${ring};
+        border:1px solid ${col ? col+'44' : 'var(--border-light)'};
+        display:flex;align-items:center;justify-content:center;cursor:default;flex-shrink:0">
+      </div>
     </div>`);
   }
   const calDayHeaders=['M','T','W','T','F','S','S'].map(d=>
@@ -3006,7 +3047,7 @@ function renderMonth(yr, mo){
         <div class="chart-title">Activity Calendar</div>
         <div class="chart-meta">${activeDays.size} active days · ${maxStreak}d best streak · ${bestWkStreak}w active week streak</div>
       </div>
-      <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:4px">
+      <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:1px">
         ${calDayHeaders}
         ${calCells.join('')}
       </div>

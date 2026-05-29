@@ -1814,15 +1814,6 @@ function renderTraining(){
       (a.moving_time/a.distance*1000)<(b.moving_time/b.distance*1000)?a:b);
     threshPace = best.moving_time/(best.distance/1000);
   }
-  const zoneTimes = [0,0,0,0,0];
-  recentRuns.filter(a=>{const d=parseLocal(a.start_date_local);return (today-d)<90*86400000;}).forEach(a=>{
-    const pace = a.moving_time/(a.distance/1000);
-    const zi = paceZones.findIndex(z=>pace>=z.paceMin&&pace<z.paceMax);
-    if(zi>=0) zoneTimes[zi]+=a.moving_time;
-  });
-  const totalRunTime = zoneTimes.reduce((a,b)=>a+b,0)||1;
-
-
   // ── Sport balance ─────────────────────────────────────────────────────────
   const sportList = ['Ride','Run','Racquet','WeightTraining','Walk','Hike'];
   const sportMonths = {};

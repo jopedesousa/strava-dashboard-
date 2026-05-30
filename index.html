@@ -8,6 +8,7 @@
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://unpkg.com/leaflet.heat@0.2.0/dist/leaflet-heat.js"></script>
 <style>
 /* ─── APPLE-MINIMAL DESIGN SYSTEM ─── */
 :root {
@@ -282,6 +283,10 @@ canvas { max-height: 200px !important; }
 .gear-preset-chip:hover { border-color:var(--accent);color:var(--accent); }
 .gear-preset-chip.active { background:#fff3ee;color:var(--accent);border-color:var(--accent); }
 
+.explore-chip { display:inline-flex;align-items:center;padding:5px 14px;border-radius:20px;font-size:12px;font-weight:500;background:var(--bg2);color:var(--text2);border:1.5px solid var(--border);cursor:pointer;transition:all .15s;font-family:inherit; }
+.explore-chip:hover { border-color:var(--accent);color:var(--accent); }
+.explore-chip.active { background:#fff3ee;color:var(--accent);border-color:var(--accent); }
+
 /* ─── GEAR TIMELINE ─── */
 .gear-controls { display: flex; gap: 8px; margin-bottom: 20px; flex-wrap: wrap; }
 .kw-pill { display: inline-flex; align-items: center; gap: 6px; background: #fff3ee; color: var(--accent); border-radius: 20px; padding: 4px 12px; font-size: 12px; font-weight: 500; cursor: pointer; border: none; }
@@ -339,7 +344,7 @@ canvas { max-height: 200px !important; }
   content: attr(title);
   position: absolute;
   left: 50%; transform: translateX(-50%);
-  bottom: calc(100% + 8px);
+  top: calc(100% + 8px);
   background: rgba(29,29,31,.92); color: #fff;
   font-size: 12px; font-weight: 400; letter-spacing: 0;
   padding: 5px 10px; border-radius: 6px;
@@ -350,9 +355,9 @@ canvas { max-height: 200px !important; }
 .hello-word::before {
   content: '';
   position: absolute; left: 50%; transform: translateX(-50%);
-  bottom: calc(100% + 2px);
+  top: calc(100% + 2px);
   border: 5px solid transparent;
-  border-top-color: rgba(29,29,31,.92);
+  border-bottom-color: rgba(29,29,31,.92);
   pointer-events: none; opacity: 0; transition: opacity .15s;
 }
 .hello-word:hover::after, .hello-word:hover::before { opacity: 1; }
@@ -463,6 +468,7 @@ canvas { max-height: 200px !important; }
       <button class="tab" onclick="switchTab('milestones',this)">Milestones</button>
       <button class="tab" onclick="switchTab('gear',this)">Gear Log</button>
       <button class="tab" onclick="switchTab('places',this)">Places</button>
+      <button class="tab" onclick="switchTab('explore',this)">Explore</button>
     </div>
     <div style="height:1px;background:var(--border-light);margin-bottom:20px"></div>
 
@@ -598,6 +604,46 @@ canvas { max-height: 200px !important; }
         <div id="osm-map" style="width:100%;height:500px"></div>
       </div>
       <div class="geo-grid" id="geo-content"></div>
+    </div>
+
+    <!-- ═══ EXPLORE TAB ═══ -->
+    <div class="tab-content" id="tab-explore">
+      <div style="display:flex;align-items:center;gap:16px;margin-bottom:16px;flex-wrap:wrap">
+        <div class="section-title" style="margin-bottom:0">Explore</div>
+        <div style="display:flex;gap:6px" id="explore-filter-chips">
+          <button class="explore-chip active" data-sport="all"    onclick="setExploreFilter('all',this)">All</button>
+          <button class="explore-chip"        data-sport="Ride"   onclick="setExploreFilter('Ride',this)">🚴 Cycling</button>
+          <button class="explore-chip"        data-sport="Run"    onclick="setExploreFilter('Run',this)">🏃 Running</button>
+        </div>
+        <span id="explore-meta" style="font-size:12px;color:var(--text3);margin-left:auto"></span>
+      </div>
+
+      <!-- Heatmap map -->
+      <div class="chart-card" style="padding:0;overflow:hidden;margin-bottom:16px">
+        <div style="padding:14px 16px 0;display:flex;align-items:center;justify-content:space-between">
+          <div class="chart-title">Activity Heatmap</div>
+          <div style="font-size:11px;color:var(--text3)">Density = how often you've been in that area</div>
+        </div>
+        <div id="explore-map" style="width:100%;height:480px"></div>
+      </div>
+
+      <!-- Explored squares game -->
+      <div class="chart-card" style="margin-bottom:16px">
+        <div class="chart-header">
+          <div class="chart-title">Explored Squares</div>
+          <div class="chart-meta">Like Wandrer — how much of your local area have you covered?</div>
+        </div>
+        <div style="display:flex;gap:8px;align-items:center;margin-bottom:12px;flex-wrap:wrap">
+          <label style="font-size:12px;color:var(--text3)">Grid size:</label>
+          <select id="explore-grid-size" onchange="renderExploreSquares()" class="filter-select" style="font-size:12px;padding:4px 8px">
+            <option value="0.01">~1km squares</option>
+            <option value="0.005" selected>~500m squares</option>
+            <option value="0.002">~200m squares</option>
+          </select>
+          <span id="explore-squares-meta" style="font-size:12px;color:var(--text3)"></span>
+        </div>
+        <div id="explore-squares-map" style="width:100%;height:420px;border-radius:8px;overflow:hidden"></div>
+      </div>
     </div>
 
   </div><!-- end .content -->
@@ -1371,6 +1417,8 @@ async function renderWeek(){
       <div class="home-section-title">This Week</div>
       <div style="font-size:13px;color:var(--text3)">${weekStart.toLocaleDateString('en-GB',{day:'numeric',month:'short'})} – ${now.toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric'})}</div>
     </div>
+    <div id="week-insights-loading" class="loading-row" style="margin-bottom:12px"><div class="spinner"></div>Generating weekly digest…</div>
+    <div id="week-digest" style="margin-bottom:16px"></div>
     <div class="ytd-grid" style="margin-bottom:16px">
       <div class="ytd-card"><div class="ytd-label">Activities</div><div class="ytd-val">${thisWeek.length}</div>${wkVs(thisWeek.length,lastWk.length)}</div>
       <div class="ytd-card"><div class="ytd-label">Distance</div><div class="ytd-val">${twDist.toFixed(1)}<span class="ytd-unit">km</span></div>${wkVs(twDist,lwDist,1)}</div>
@@ -1390,8 +1438,7 @@ async function renderWeek(){
       <div class="chart-header"><div class="chart-title">Gear This Week</div></div>
       <div id="week-gear-table"></div>
     </div>
-    <div id="week-insights-loading" class="loading-row"><div class="spinner"></div>Generating weekly insights…</div>
-    <div class="insights-grid" id="week-insights" style="margin-top:0"></div>`;
+    <div class="insights-grid" id="week-insights" style="margin-top:0;display:none"></div>`;
 
   // Draw chart
   setTimeout(()=>{
@@ -1465,38 +1512,99 @@ function renderWeekGear(thisWeek){
 }
 
 async function renderWeekInsights(thisWeek, prevWeeks){
-  const loadEl = document.getElementById('week-insights-loading');
-  const gridEl = document.getElementById('week-insights');
-  if(!loadEl||!gridEl) return;
-  const prev = prevWeeks[0]; // last week
+  const loadEl  = document.getElementById('week-insights-loading');
+  const digestEl = document.getElementById('week-digest');
+  if(!loadEl||!digestEl) return;
+
+  const prev  = prevWeeks[0]||[];
+  const prev2 = prevWeeks[1]||[];
   const thisDist = thisWeek.reduce((s,a)=>s+a.distance,0)/1000;
   const prevDist = prev.reduce((s,a)=>s+a.distance,0)/1000;
   const thisTime = thisWeek.reduce((s,a)=>s+a.moving_time,0)/3600;
-  const summary = `This week so far: ${thisWeek.length} activities, ${thisDist.toFixed(1)}km, ${thisTime.toFixed(1)}hrs.
-Last week: ${prev.length} activities, ${prevDist.toFixed(1)}km.
-Sports this week: ${[...new Set(thisWeek.map(a=>a.sport))].map(s=>sp(s).label).join(', ')||'none yet'}.
-Athlete: Joao, 41, architect, daily cyclist, moving to Madrid soon.`;
+  const thisElev = thisWeek.reduce((s,a)=>s+a.total_elevation_gain,0);
+
+  // ── Pattern data to include ──────────────────────────────────────────────
+  // Time-of-day distribution
+  const hourBuckets = {morning:0, midday:0, evening:0, night:0};
+  thisWeek.forEach(a=>{
+    const h = parseLocal(a.start_date_local).getHours();
+    if(h>=5&&h<10)       hourBuckets.morning++;
+    else if(h>=10&&h<15) hourBuckets.midday++;
+    else if(h>=15&&h<21) hourBuckets.evening++;
+    else                  hourBuckets.night++;
+  });
+  const peakTime = Object.entries(hourBuckets).sort((a,b)=>b[1]-a[1])[0]?.[0]||'';
+
+  // Average HR trend
+  const hrActs = thisWeek.filter(a=>a.average_heartrate);
+  const avgHR  = hrActs.length ? Math.round(hrActs.reduce((s,a)=>s+a.average_heartrate,0)/hrActs.length) : null;
+  const prevHRActs = prev.filter(a=>a.average_heartrate);
+  const prevAvgHR  = prevHRActs.length ? Math.round(prevHRActs.reduce((s,a)=>s+a.average_heartrate,0)/prevHRActs.length) : null;
+
+  // Rest days this week
+  const now = new Date(); now.setHours(0,0,0,0);
+  const weekStart = new Date(now); weekStart.setDate(now.getDate()-now.getDay()+1);
+  let activeDays=0;
+  for(let d=0;d<7;d++){
+    const ds = new Date(weekStart.getTime()+d*86400000).toISOString().split('T')[0];
+    if(thisWeek.some(a=>a.start_date_local.startsWith(ds))) activeDays++;
+  }
+  const restDays = Math.min(7,7-activeDays);
+
+  // Best run this week (by pace)
+  const runs = thisWeek.filter(a=>a.sport==='Run'&&a.distance>0&&a.moving_time>0);
+  const bestRun = runs.sort((a,b)=>(a.moving_time/a.distance)-(b.moving_time/b.distance))[0]||null;
+
+  // Compare best run pace to 3-month history
+  const threeMonthsAgo = new Date(); threeMonthsAgo.setDate(threeMonthsAgo.getDate()-90);
+  const historicRuns = allActivities.filter(a=>a.sport==='Run'&&a.distance>=3000&&parseLocal(a.start_date_local)<weekStart&&parseLocal(a.start_date_local)>threeMonthsAgo);
+  const historicBestPace = historicRuns.length ? Math.min(...historicRuns.map(a=>a.moving_time/a.distance)) : null;
+  const thisRunPace = bestRun ? bestRun.moving_time/bestRun.distance : null;
+  const fastestRunInPeriod = thisRunPace && historicBestPace && thisRunPace < historicBestPace;
+
+  const prompt = `Weekly training data for Joao (41, architect, daily cyclist, London):
+
+THIS WEEK: ${thisWeek.length} activities, ${thisDist.toFixed(1)}km, ${thisTime.toFixed(1)}h, ${thisElev}m elevation.
+Sports: ${[...new Set(thisWeek.map(a=>sp(a.sport).label))].join(', ')||'none yet'}.
+Active days: ${activeDays}/7, rest days: ${restDays}.
+Peak training time: ${peakTime}.
+${avgHR ? `Avg heart rate this week: ${avgHR}bpm${prevAvgHR ? ` (last week: ${prevAvgHR}bpm${avgHR>prevAvgHR+5?' — elevated, possible fatigue':''})` : ''}.` : ''}
+${bestRun ? `Best run: ${(bestRun.distance/1000).toFixed(1)}km in ${fmtTime(bestRun.moving_time)} (${fmtPace(bestRun.moving_time/(bestRun.distance/1000))}/km)${fastestRunInPeriod?' — fastest in 3 months':''}.` : ''}
+LAST WEEK: ${prev.length} activities, ${prevDist.toFixed(1)}km.
+2 WEEKS AGO: ${prev2.length} activities, ${(prev2.reduce((s,a)=>s+a.distance,0)/1000).toFixed(1)}km.
+
+Write a single natural-language weekly digest paragraph (3–4 sentences). Be specific and personal. Mention actual numbers. Spot patterns: comment on time-of-day habits, whether elevated HR suggests fatigue, any notable performances, and suggest what to prioritise next. Sound like a knowledgeable friend, not a corporate coach. No bullet points.`;
+
   try{
     const r = await fetch('https://api.anthropic.com/v1/messages',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
-      model:'claude-sonnet-4-20250514',max_tokens:600,
-      system:'Return ONLY a JSON array of exactly 3 insight objects (no markdown). Each has title (≤6 words) and body (2 sentences). Be warm, positive, specific to the numbers. Recognise effort, trends, and give encouragement.',
-      messages:[{role:'user',content:`Generate 3 positive weekly insights for this athlete:
-
-${summary}`}]
+      model:'claude-sonnet-4-20250514', max_tokens:300,
+      system:'You are a warm, knowledgeable endurance coach writing a brief weekly digest. Be specific, personal, and conversational. 3-4 sentences max. No bullet points, no headers.',
+      messages:[{role:'user',content:prompt}]
     })});
     const d = await r.json();
-    const text = d.content?.map(c=>c.text||'').join('').replace(/```json|```/g,'').trim();
-    const insights = JSON.parse(text);
+    const text = d.content?.map(c=>c.text||'').join('').trim();
+    if(!text) throw new Error('empty');
     loadEl.style.display='none';
-    gridEl.innerHTML = insights.map(i=>`<div class="insight-card"><div class="insight-title">${i.title}</div><div class="insight-body">${i.body}</div></div>`).join('');
+    digestEl.innerHTML = `<div class="chart-card" style="background:linear-gradient(135deg,#f8faff,#f0f5ff);border-color:#dbeafe;padding:18px 20px">
+      <div style="font-size:13px;line-height:1.75;color:var(--text2)">${text}</div>
+    </div>`;
   }catch(e){
     loadEl.style.display='none';
-    const fallback=[
-      {title:'Keep the momentum going',body:`${thisWeek.length} activities this week${thisDist>0?' and '+thisDist.toFixed(0)+'km covered':''} — every session compounds. Consistency week after week is how fitness is really built.`},
-      {title:thisWeek.length>prev.length?'More active than last week':'Solid week in progress',body:thisWeek.length>prev.length?"You're ahead of last week's pace — great sign.":"You're building steadily. Every day you show up counts more than you think."},
-      {title:'Rest is training too',body:`If there are lighter days in here, they're not wasted — recovery is when your body adapts. The best athletes in the world plan their rest as carefully as their training.`},
-    ];
-    gridEl.innerHTML = fallback.map(i=>`<div class="insight-card"><div class="insight-title">${i.title}</div><div class="insight-body">${i.body}</div></div>`).join('');
+    // Fallback rule-based digest
+    let digest = '';
+    if(!thisWeek.length){
+      digest = `No activities logged this week yet — the week is still young. Last week you covered ${prevDist.toFixed(1)}km across ${prev.length} sessions, so there's a good base to build on.`;
+    } else {
+      const trend = thisDist > prevDist*1.1 ? 'up from' : thisDist < prevDist*0.9 ? 'down from' : 'consistent with';
+      digest = `${thisWeek.length} activit${thisWeek.length===1?'y':'ies'} so far this week, covering ${thisDist.toFixed(1)}km — ${trend} last week's ${prevDist.toFixed(1)}km.`;
+      if(bestRun) digest += ` Your best run was ${(bestRun.distance/1000).toFixed(1)}km at ${fmtPace(bestRun.moving_time/(bestRun.distance/1000))}/km${fastestRunInPeriod?' — your fastest in 3 months':''}.`;
+      if(avgHR&&prevAvgHR&&avgHR>prevAvgHR+5) digest += ` Heart rate is running ${avgHR-prevAvgHR}bpm above last week's average, which may suggest some accumulated fatigue — an easy day could pay dividends.`;
+      if(peakTime==='morning') digest += ` You're a morning trainer this week — great for building consistency.`;
+      else if(peakTime==='evening') digest += ` Most sessions have been in the evening; watch that late training doesn't affect sleep quality.`;
+    }
+    digestEl.innerHTML = `<div class="chart-card" style="background:linear-gradient(135deg,#f8faff,#f0f5ff);border-color:#dbeafe;padding:18px 20px">
+      <div style="font-size:13px;line-height:1.75;color:var(--text2)">${digest}</div>
+    </div>`;
   }
 }
 
@@ -2845,6 +2953,186 @@ function initPlacesMap(){
 
 
 // ══════════════════════════════════════════
+// EXPLORE TAB — Heatmap + Explored Squares
+// ══════════════════════════════════════════
+let _exploreMap = null, _squaresMap = null, _exploreFilter = 'all';
+let _heatLayer = null, _squareLayer = null;
+
+function destroyExploreMaps(){
+  if(_exploreMap){ try{ _exploreMap.remove(); }catch(e){} _exploreMap=null; }
+  if(_squaresMap){ try{ _squaresMap.remove(); }catch(e){} _squaresMap=null; }
+  _heatLayer=null; _squareLayer=null;
+}
+
+function setExploreFilter(sport, btn){
+  _exploreFilter = sport;
+  document.querySelectorAll('.explore-chip').forEach(c=>c.classList.toggle('active', c.dataset.sport===sport));
+  renderExploreHeatmap();
+  renderExploreSquares();
+}
+
+function getExploreActs(){
+  return allActivities.filter(a=>{
+    if(_exploreFilter==='Ride' && a.sport!=='Ride') return false;
+    if(_exploreFilter==='Run'  && a.sport!=='Run')  return false;
+    const ll = a.start_latlng;
+    return ll && Array.isArray(ll) && ll.length===2 && ll[0]!==0 && ll[1]!==0;
+  });
+}
+
+function initExploreTab(){
+  if(typeof L === 'undefined') return;
+  renderExploreHeatmap();
+  renderExploreSquares();
+}
+
+function renderExploreHeatmap(){
+  if(typeof L === 'undefined') return;
+  const mapEl = document.getElementById('explore-map');
+  if(!mapEl) return;
+
+  const acts = getExploreActs();
+  document.getElementById('explore-meta').textContent = `${acts.length} activities with GPS`;
+
+  // Destroy and recreate
+  if(_exploreMap){ try{ _exploreMap.remove(); }catch(e){} _exploreMap=null; }
+
+  if(mapEl.offsetWidth===0){ requestAnimationFrame(renderExploreHeatmap); return; }
+
+  _exploreMap = L.map('explore-map');
+  // Dark tile layer for heatmap contrast
+  L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',{
+    attribution:'© OpenStreetMap contributors, © CARTO', maxZoom:19
+  }).addTo(_exploreMap);
+
+  if(!acts.length){ _exploreMap.setView([51.505,-0.09],11); return; }
+
+  // Build point density grid for a canvas-based heatmap
+  // We'll use Leaflet's built-in L.heatLayer if available, else manual canvas overlay
+  const points = acts.map(a=>[a.start_latlng[0], a.start_latlng[1], 0.8]);
+
+  // Check if leaflet.heat is available (it may not be — we'll use a circle-based approach instead)
+  if(typeof L.heatLayer !== 'undefined'){
+    _heatLayer = L.heatLayer(points, {
+      radius: 25, blur: 20, maxZoom: 15,
+      gradient: {0.2:'#1e40af', 0.4:'#3b82f6', 0.6:'#06b6d4', 0.8:'#10b981', 1.0:'#f59e0b'}
+    }).addTo(_exploreMap);
+  } else {
+    // Fallback: cluster circles with opacity based on density
+    // Build density grid
+    const CELL = 0.008; // ~800m cells
+    const density = {};
+    acts.forEach(a=>{
+      const la = a.start_latlng[0], ln = a.start_latlng[1];
+      const key = `${Math.round(la/CELL)}_${Math.round(ln/CELL)}`;
+      density[key] = (density[key]||0) + 1;
+    });
+    const maxD = Math.max(...Object.values(density), 1);
+    const group = L.featureGroup();
+    Object.entries(density).forEach(([key, count])=>{
+      const [ri, ci] = key.split('_').map(Number);
+      const lat = ri*CELL, lng = ci*CELL;
+      const pct = count/maxD;
+      const r = 6 + pct*14;
+      // Colour: blue→cyan→green→yellow
+      let col;
+      if(pct<0.25)      col='#3b82f6';
+      else if(pct<0.5)  col='#06b6d4';
+      else if(pct<0.75) col='#10b981';
+      else              col='#f59e0b';
+      L.circleMarker([lat,lng],{
+        radius: r, fillColor: col, color:'none',
+        fillOpacity: 0.25 + pct*0.55, weight: 0
+      }).addTo(group);
+    });
+    group.addTo(_exploreMap);
+    try{ const b=group.getBounds(); if(b.isValid()) _exploreMap.fitBounds(b,{padding:[40,40],maxZoom:13}); }catch(e){}
+    return;
+  }
+
+  // Fit to activity bounds
+  try{
+    const lats = acts.map(a=>a.start_latlng[0]);
+    const lngs = acts.map(a=>a.start_latlng[1]);
+    const bounds = L.latLngBounds([[Math.min(...lats),Math.min(...lngs)],[Math.max(...lats),Math.max(...lngs)]]);
+    if(bounds.isValid()) _exploreMap.fitBounds(bounds,{padding:[40,40],maxZoom:13});
+  }catch(e){ _exploreMap.setView([51.505,-0.09],11); }
+}
+
+function renderExploreSquares(){
+  if(typeof L === 'undefined') return;
+  const mapEl = document.getElementById('explore-squares-map');
+  if(!mapEl) return;
+  if(mapEl.offsetWidth===0){ requestAnimationFrame(renderExploreSquares); return; }
+
+  const acts = getExploreActs();
+  const cellSize = parseFloat(document.getElementById('explore-grid-size')?.value || '0.005');
+
+  // Build set of visited grid squares from GPS start points
+  const visited = new Map(); // key -> count
+  acts.forEach(a=>{
+    const la = a.start_latlng[0], ln = a.start_latlng[1];
+    const ri = Math.floor(la/cellSize);
+    const ci = Math.floor(ln/cellSize);
+    const key = `${ri}_${ci}`;
+    visited.set(key, (visited.get(key)||0)+1);
+  });
+
+  const totalSquares = visited.size;
+  const metaEl = document.getElementById('explore-squares-meta');
+  if(metaEl) metaEl.textContent = `${totalSquares} unique squares explored`;
+
+  // Destroy and recreate
+  if(_squaresMap){ try{ _squaresMap.remove(); }catch(e){} _squaresMap=null; }
+
+  _squaresMap = L.map('explore-squares-map');
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{
+    attribution:'© OpenStreetMap contributors', maxZoom:19
+  }).addTo(_squaresMap);
+
+  if(!visited.size){ _squaresMap.setView([51.505,-0.09],12); return; }
+
+  const maxCount = Math.max(...visited.values(), 1);
+  const group = L.featureGroup();
+
+  visited.forEach((count, key)=>{
+    const [ri, ci] = key.split('_').map(Number);
+    const s = L.latLng(ri*cellSize, ci*cellSize);
+    const n = L.latLng((ri+1)*cellSize, (ci+1)*cellSize);
+    const pct = count/maxCount;
+    // Orange for cycling, green for running, blue for all
+    let baseCol;
+    if(_exploreFilter==='Ride') baseCol = [252,76,2];
+    else if(_exploreFilter==='Run') baseCol = [52,199,89];
+    else baseCol = [37,99,235];
+    const alpha = 0.2 + pct*0.65;
+    const fillCol = `rgba(${baseCol[0]},${baseCol[1]},${baseCol[2]},${alpha.toFixed(2)})`;
+    const strokeCol = `rgba(${baseCol[0]},${baseCol[1]},${baseCol[2]},0.5)`;
+
+    L.rectangle([s,n],{
+      fillColor: fillCol, color: strokeCol,
+      weight: 0.5, fillOpacity: 1
+    })
+    .bindTooltip(`${count} activit${count===1?'y':'ies'} started here`, {sticky:true, className:'explore-tip'})
+    .addTo(group);
+  });
+
+  group.addTo(_squaresMap);
+
+  // Find max-square cluster for a "home territory" stat
+  const sorted = [...visited.entries()].sort((a,b)=>b[1]-a[1]);
+  const [topKey, topCount] = sorted[0]||['',0];
+  if(metaEl && topCount>1){
+    metaEl.textContent = `${totalSquares} unique squares · most visited: ${topCount}×`;
+  }
+
+  try{
+    const b = group.getBounds();
+    if(b.isValid()) _squaresMap.fitBounds(b,{padding:[32,32],maxZoom:14});
+  }catch(e){}
+}
+
+// ══════════════════════════════════════════
 // AI INSIGHTS
 // ══════════════════════════════════════════
 
@@ -3106,8 +3394,9 @@ function renderMonth(yr, mo){
 }
 
 function switchTab(name,btn){
-  // Destroy map when leaving places tab
-  if(name !== 'places') destroyOSMMap();
+  // Destroy maps when leaving their tabs
+  if(name !== 'places')  destroyOSMMap();
+  if(name !== 'explore') destroyExploreMaps();
   document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
   document.querySelectorAll('.tab-content').forEach(t=>t.classList.remove('active'));
   btn.classList.add('active');
@@ -3119,6 +3408,7 @@ function switchTab(name,btn){
   if(name==='milestones') renderMilestones();
   if(name==='gear')       renderGearTimeline();
   if(name==='places')     { renderPlacesLists(); setTimeout(initPlacesMap, 0); }
+  if(name==='explore')    setTimeout(initExploreTab, 0);
   if(name==='home')       renderHomePage();
 }
 

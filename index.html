@@ -390,6 +390,25 @@ canvas { max-height: 200px !important; }
     <div class="connect-desc">One-time setup. After connecting, this page remembers you permanently.</div>
     <div id="saved-notice"></div>
 
+    <div class="step" style="border:2px solid var(--accent);border-radius:10px;padding:14px;margin:0 -14px 14px">
+      <div class="step-num" style="background:var(--accent)">★</div>
+      <div style="flex:1">
+        <div class="step-title">Connect intervals.icu (recommended — Garmin + manual data)</div>
+        <div class="step-desc" style="margin-bottom:8px">
+          Go to <a href="https://intervals.icu/settings" target="_blank" style="color:var(--accent)">intervals.icu/settings</a> → Developer Settings to find your Athlete ID and API Key.
+        </div>
+        <input class="field" id="icu-athlete-id" placeholder="Athlete ID (e.g. i633073)">
+        <input class="field" id="icu-api-key" type="password" placeholder="API Key" style="margin-top:6px">
+        <label class="checkbox-row"><input type="checkbox" id="icu-save-creds" checked> Remember me</label>
+        <button type="button" onclick="connectIntervals()"
+          style="display:block;width:100%;background:var(--accent);color:#fff;text-align:center;padding:13px;border-radius:8px;font-size:14px;font-weight:600;border:none;cursor:pointer;margin-top:10px">
+          Connect intervals.icu →
+        </button>
+        <div id="icu-connect-error" style="margin-top:8px"></div>
+      </div>
+    </div>
+    <div class="connect-desc" style="text-align:center;margin:-6px 0 14px;color:var(--text4)">— or, for historical Strava-only re-import —</div>
+
     <div class="step">
       <div class="step-num">1</div>
       <div style="flex:1">
@@ -928,6 +947,176 @@ async function launch(token,athlete){
   else renderAll();
 }
 
+// ══════════════════════════════════════════
+// INTERVALS.ICU INTEGRATION
+// Historical data (up to and including CUTOFF_DATE) comes from the
+// Strava bulk-export archive (strava_archive.json, static file alongside
+// this page). Everything from the day after CUTOFF_DATE onward comes
+// live from the intervals.icu API (Garmin-sourced + manual entries),
+// which — unlike Strava's — is free and CORS-friendly for browser JS.
+// ══════════════════════════════════════════
+const CUTOFF_DATE      = '2026-07-05';           // last day covered by the static archive
+const CUTOFF_NEXT_DATE = '2026-07-06';           // first day intervals.icu is authoritative
+const ICU_ATH_KEY  = 'icu_athlete_id';
+const ICU_KEY_KEY  = 'icu_api_key';
+const ICU_ACTS_KEY = 'icu_acts_v1';              // JSON array of intervals.icu-sourced activities (>= cutoff)
+
+let archiveActivities = null; // lazy-loaded, cached in memory for the session
+
+function loadIcuActsCache(){ try{ return JSON.parse(localStorage.getItem(ICU_ACTS_KEY)||'[]'); }catch(e){ return []; } }
+function saveIcuActsCache(acts){ try{ localStorage.setItem(ICU_ACTS_KEY, JSON.stringify(acts)); }catch(e){} }
+
+// Fetch the static historical archive (once per session). Returns [] on
+// any failure (e.g. running from file:// where fetch of a local file can
+// be blocked by the browser) rather than throwing, so the dashboard still
+// works with live data only.
+async function loadArchive(){
+  if(archiveActivities) return archiveActivities;
+  try{
+    const r = await fetch('strava_archive.json', {cache:'force-cache'});
+    if(!r.ok) throw new Error('HTTP '+r.status);
+    const raw = await r.json();
+    // Synthesize gear_id/gearMap entries from the archive's gear_name strings
+    // so the existing Gear Log tab (which keys off a.gear_id + gearMap[id])
+    // works unchanged for historical activities.
+    raw.forEach(a=>{
+      if(a.gear_name){
+        const gid = 'archive_' + a.gear_name.toLowerCase().replace(/[^a-z0-9]+/g,'_');
+        a.gear_id = gid;
+        if(!gearMap[gid]){
+          const isBike = classify(a) === 'Ride';
+          gearMap[gid] = {name: a.gear_name, distance: 0, type: isBike ? 'bike' : 'shoes'};
+        }
+      }
+    });
+    archiveActivities = raw;
+  }catch(e){
+    console.warn('Could not load strava_archive.json — continuing with live data only.', e);
+    archiveActivities = [];
+  }
+  return archiveActivities;
+}
+
+// Combine archive (<= CUTOFF_DATE) + live intervals.icu cache (> CUTOFF_DATE),
+// dedupe by id, and set allActivities via norm().
+async function mergeAndRender(){
+  const archive = await loadArchive();
+  const cutoffBoundary = CUTOFF_NEXT_DATE + 'T00:00:00';
+  const archiveFiltered = archive.filter(a => a.start_date_local < cutoffBoundary);
+  const live = loadIcuActsCache();
+
+  const seen = new Set();
+  const combined = [];
+  [...archiveFiltered, ...live].forEach(a=>{
+    if(seen.has(a.id)) return;
+    seen.add(a.id);
+    combined.push(a);
+  });
+  combined.sort((a,b)=> a.start_date_local < b.start_date_local ? 1 : -1);
+
+  allActivities = norm(combined);
+  renderAll();
+}
+
+async function connectIntervals(){
+  const athleteId = document.getElementById('icu-athlete-id').value.trim();
+  const apiKey    = document.getElementById('icu-api-key').value.trim();
+  const errEl     = document.getElementById('icu-connect-error');
+  errEl.innerHTML = '';
+  if(!athleteId || !apiKey){
+    errEl.innerHTML = '<div style="color:#dc2626;font-size:12px">Enter both your Athlete ID and API Key.</div>';
+    return;
+  }
+  const remember = document.getElementById('icu-save-creds').checked;
+  if(remember){
+    try{ localStorage.setItem(ICU_ATH_KEY, athleteId); localStorage.setItem(ICU_KEY_KEY, apiKey); }catch(e){}
+  }
+  document.getElementById('connect-screen').style.display='none';
+  document.getElementById('dashboard').style.display='block';
+  document.getElementById('athlete-name').textContent = athleteId;
+  document.getElementById('sync-time').textContent = new Date().toLocaleTimeString();
+  await fetchAllIntervals(athleteId, apiKey);
+}
+
+async function fetchAllIntervals(athleteId, apiKey){
+  const tc = document.getElementById('top-center');
+  const pf = document.getElementById('progress-fill');
+  const lt = document.getElementById('loading-text');
+  tc.style.display = 'flex';
+  pf.style.width = '10%';
+  lt.textContent = 'Loading historical archive…';
+
+  // Render immediately with whatever we already have cached, for snappy UX
+  await mergeAndRender();
+  pf.style.width = '30%';
+
+  const cached = loadIcuActsCache();
+  const cachedIds = new Set(cached.map(a=>a.id));
+
+  // Determine the date to start fetching from: the day after the newest
+  // cached live activity, or CUTOFF_NEXT_DATE if we have no live cache yet.
+  let oldest = CUTOFF_NEXT_DATE;
+  if(cached.length){
+    const newestLocal = cached.reduce((max,a)=> a.start_date_local > max ? a.start_date_local : max, cached[0].start_date_local);
+    oldest = newestLocal.slice(0,10); // re-fetch that day too, in case of same-day updates; de-duped by id below
+  }
+  const today = new Date();
+  const newest = today.toISOString().slice(0,10);
+
+  lt.textContent = 'Syncing from intervals.icu…';
+
+  const authHeader = 'Basic ' + btoa('API_KEY:' + apiKey);
+  const url = `https://intervals.icu/api/v1/athlete/${encodeURIComponent(athleteId)}/activities?oldest=${oldest}&newest=${newest}`;
+
+  let syncFailed = false;
+  let r;
+  try{
+    r = await fetch(url, {headers:{'Authorization': authHeader}});
+  }catch(e){
+    syncFailed = true;
+  }
+
+  if(r && r.status === 401){
+    tc.style.display='none';
+    document.getElementById('dashboard').style.display='none';
+    document.getElementById('connect-screen').style.display='flex';
+    document.getElementById('icu-connect-error').innerHTML =
+      '<div style="color:#dc2626;font-size:12px">Auth failed — check your Athlete ID and API Key and try again.</div>';
+    return;
+  }
+
+  if(r && r.status === 429){
+    lt.textContent = 'Rate limited — waiting 15 min to finish syncing…';
+    await new Promise(res=>setTimeout(res, 15*60*1000 + 5000));
+    return fetchAllIntervals(athleteId, apiKey); // retry once, fresh
+  }
+
+  let newActs = [];
+  if(r && r.ok){
+    try{
+      const body = await r.json();
+      if(Array.isArray(body)) newActs = body;
+      else syncFailed = true;
+    }catch(e){ syncFailed = true; }
+  } else if(r){
+    syncFailed = true;
+  }
+
+  // Merge new + cached by id (new wins on conflict, e.g. same-day re-fetch)
+  const merged = [...cached.filter(a=>!newActs.some(n=>n.id===a.id)), ...newActs];
+  saveIcuActsCache(merged);
+
+  await mergeAndRender();
+
+  pf.style.width = '100%';
+  const addedCount = newActs.filter(a=>!cachedIds.has(a.id)).length;
+  lt.textContent = syncFailed
+    ? `⚠ ${allActivities.length} activities (sync failed — retry later)`
+    : `✓ ${allActivities.length} activities (${addedCount} new from intervals.icu)`;
+  document.getElementById('sync-time').textContent = new Date().toLocaleTimeString();
+  setTimeout(()=>{ tc.style.display='none'; }, syncFailed ? 6000 : 2000);
+}
+
 // ── Activity & description cache keys ────────────────────────────────────────
 const ACTS_KEY  = 'str_acts_v2';   // JSON array of all cached activities
 const DESC_KEY  = 'str_desc_v2';   // {id: description_string}
@@ -941,8 +1130,8 @@ function loadGearCache(){ try{ return JSON.parse(localStorage.getItem(GEAR_KEY)|
 function saveGearCache(obj){ try{ localStorage.setItem(GEAR_KEY, JSON.stringify(obj)); }catch(e){} }
 
 function clearAllCaches(){
-  if(!confirm('Clear all cached activities and descriptions?\n\nNext load will re-fetch everything from Strava (this may take a few minutes).')) return;
-  [ACTS_KEY, DESC_KEY, GEAR_KEY, 'str_acts_cache', 'str_desc_cache'].forEach(k=>{
+  if(!confirm('Clear all cached activities and descriptions?\n\nNext load will re-fetch everything (this may take a few minutes).')) return;
+  [ACTS_KEY, DESC_KEY, GEAR_KEY, ICU_ACTS_KEY, 'str_acts_cache', 'str_desc_cache'].forEach(k=>{
     try{ localStorage.removeItem(k); }catch(e){}
   });
   location.reload();
@@ -999,6 +1188,7 @@ async function fetchAll(token, athlete){
   const newActs = [];
   let page = 1;
   let hitKnown = false;
+  let syncFailed = false;
 
   while(!hitKnown){
     lt.textContent = cached.length
@@ -1024,6 +1214,16 @@ async function fetchAll(token, athlete){
       showReauthPrompt('Strava session expired');
       return;
     }
+
+    if(r.status === 429){
+      // Rate-limited mid-sync — wait out the 15-min window then retry this page,
+      // rather than silently giving up and reporting "up to date".
+      lt.textContent = 'Rate limited — waiting 15 min to finish syncing…';
+      await new Promise(res=>setTimeout(res, 15*60*1000 + 5000));
+      continue;
+    }
+
+    if(!r.ok){ syncFailed = true; break; }
 
     const b = await r.json();
     if(!Array.isArray(b)||!b.length) break;
@@ -1051,11 +1251,13 @@ async function fetchAll(token, athlete){
   }
 
   pf.style.width = '100%';
-  const totalStr = newActs.length
-    ? `✓ ${allActivities.length} activities (${newActs.length} new)`
-    : `✓ ${allActivities.length} activities (up to date)`;
+  const totalStr = syncFailed
+    ? `⚠ ${allActivities.length} activities (sync failed — retry later)`
+    : newActs.length
+      ? `✓ ${allActivities.length} activities (${newActs.length} new)`
+      : `✓ ${allActivities.length} activities (up to date)`;
   lt.textContent = totalStr;
-  setTimeout(()=>{ tc.style.display='none'; }, 2000);
+  setTimeout(()=>{ tc.style.display='none'; }, syncFailed ? 6000 : 2000);
 
   // Skip background description fetch on mobile — battery and data intensive
   const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
@@ -3651,6 +3853,25 @@ function avgPaceOne(a){const s=a.moving_time/(a.distance/1000);return`${Math.flo
 // INIT
 // ══════════════════════════════════════════
 window.addEventListener('DOMContentLoaded', async ()=>{
+  // ── intervals.icu takes priority: if we have saved credentials, use them ──
+  let icuAthleteId, icuApiKey;
+  try{
+    icuAthleteId = localStorage.getItem(ICU_ATH_KEY);
+    icuApiKey    = localStorage.getItem(ICU_KEY_KEY);
+  }catch(e){}
+  const icuAthEl = document.getElementById('icu-athlete-id');
+  const icuKeyEl = document.getElementById('icu-api-key');
+  if(icuAthleteId && icuAthEl) icuAthEl.value = icuAthleteId;
+  if(icuApiKey && icuKeyEl) icuKeyEl.value = icuApiKey;
+  if(icuAthleteId && icuApiKey){
+    document.getElementById('connect-screen').style.display='none';
+    document.getElementById('dashboard').style.display='block';
+    document.getElementById('athlete-name').textContent = icuAthleteId;
+    document.getElementById('sync-time').textContent = new Date().toLocaleTimeString();
+    await fetchAllIntervals(icuAthleteId, icuApiKey);
+    return;
+  }
+
   // Show correct callback domain in UI
   updateCallbackDomain();
 

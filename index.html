@@ -467,6 +467,7 @@ canvas { max-height: 200px !important; }
       <strong id="athlete-name">–</strong><br>
       Synced <span id="sync-time">–</span>
       <button onclick="clearAllCaches()" title="Force full resync from Strava" style="margin-left:8px;padding:2px 7px;font-size:10px;font-weight:500;color:var(--text3);background:var(--bg3);border:1px solid var(--border-light);border-radius:5px;cursor:pointer;vertical-align:middle">↺ Resync</button>
+      <button onclick="document.getElementById('dashboard').style.display='none';document.getElementById('connect-screen').style.display='flex';" title="Change your intervals.icu or Strava credentials" style="margin-left:8px;padding:4px 10px;font-size:11px;font-weight:600;color:#fff;background:var(--accent);border:none;border-radius:5px;cursor:pointer;vertical-align:middle">⚙ Log in / Change credentials</button>
     </div>
   </div>
 
@@ -694,7 +695,7 @@ const SPORTS={
 function sp(s){return SPORTS[s]||SPORTS.Other;}
 function classify(a){
   const t=a.type||'', n=(a.name||'').toLowerCase();
-  if(['Ride','VirtualRide','EBikeRide','MountainBikeRide','GravelRide','Handcycle'].includes(t)) return 'Ride';
+  if(['Ride','VirtualRide','EBikeRide','MountainBikeRide','GravelRide','Handcycle','Transportation'].includes(t)) return 'Ride';
   if(['Run','TrailRun','VirtualRun'].includes(t)) return 'Run';
   if(t==='Tennis'||t==='Padel') return 'Racquet';
   if(['Workout','Crossfit'].includes(t)&&/tennis|padel|squash|racquet/.test(n)) return 'Racquet';
@@ -705,7 +706,13 @@ function classify(a){
   if(['Swim','OpenWaterSwim'].includes(t)) return 'Swim';
   return 'Other';
 }
-function norm(acts){return acts.map(a=>({...a,sport:classify(a)}));}
+function norm(acts){
+  return acts.map(a=>({
+    ...a,
+    sport: classify(a),
+    commute: a.commute===true || a.type==='Transportation'
+  }));
+}
 
 // ══════════════════════════════════════════
 // LOCATION EXTRACTION
@@ -3853,7 +3860,8 @@ function avgPaceOne(a){const s=a.moving_time/(a.distance/1000);return`${Math.flo
 // INIT
 // ══════════════════════════════════════════
 window.addEventListener('DOMContentLoaded', async ()=>{
-  // ── intervals.icu takes priority: if we have saved credentials, use them ──
+  // ── Pre-fill saved intervals.icu credentials (but don't auto-connect —
+  //    this lets you edit/replace the API key before triggering a sync) ──
   let icuAthleteId, icuApiKey;
   try{
     icuAthleteId = localStorage.getItem(ICU_ATH_KEY);
@@ -3864,12 +3872,8 @@ window.addEventListener('DOMContentLoaded', async ()=>{
   if(icuAthleteId && icuAthEl) icuAthEl.value = icuAthleteId;
   if(icuApiKey && icuKeyEl) icuKeyEl.value = icuApiKey;
   if(icuAthleteId && icuApiKey){
-    document.getElementById('connect-screen').style.display='none';
-    document.getElementById('dashboard').style.display='block';
-    document.getElementById('athlete-name').textContent = icuAthleteId;
-    document.getElementById('sync-time').textContent = new Date().toLocaleTimeString();
-    await fetchAllIntervals(icuAthleteId, icuApiKey);
-    return;
+    document.getElementById('saved-notice').innerHTML =
+      '<div class="saved-pill">✓ intervals.icu credentials loaded — click "Connect intervals.icu" to sync (or edit the fields first).</div>';
   }
 
   // Show correct callback domain in UI
@@ -3951,15 +3955,7 @@ window.addEventListener('DOMContentLoaded', async ()=>{
 
   if(ath && refresh && cid && cs){
     document.getElementById('saved-notice').innerHTML =
-      '<div class="saved-pill">✓ Reconnecting to Strava…</div>';
-    try{
-      const newTok = await refreshToken(refresh, cid, cs);
-      launch(newTok, JSON.parse(ath));
-    }catch(e){
-      document.getElementById('saved-notice').innerHTML =
-        '<div class="saved-pill" style="background:#fff5f5;border-color:#fecaca;color:#dc2626">' +
-        'Session expired — click "Open Strava Authorisation →" to get a new code.</div>';
-    }
+      '<div class="saved-pill">✓ Strava session available — click "Open Strava Authorisation →" to reconnect (or use intervals.icu above).</div>';
   } else if(cid && cs){
     document.getElementById('saved-notice').innerHTML =
       '<div class="saved-pill">✓ Client ID &amp; Secret loaded — click the button to connect.</div>';

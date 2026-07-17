@@ -485,6 +485,7 @@ canvas { max-height: 200px !important; }
       <button class="tab" onclick="switchTab('training',this)">Training</button>
       <button class="tab" onclick="switchTab('activities',this)">Activities</button>
       <button class="tab" onclick="switchTab('trends',this)">Trends</button>
+      <button class="tab" onclick="switchTab('wellness',this)">Wellness</button>
       <button class="tab" onclick="switchTab('milestones',this)">Milestones</button>
       <button class="tab" onclick="switchTab('gear',this)">Gear Log</button>
       <button class="tab" onclick="switchTab('places',this)">Places</button>
@@ -575,6 +576,11 @@ canvas { max-height: 200px !important; }
         </select>
       </div>
       <div class="trends-grid" id="trends-grid"></div>
+    </div>
+
+    <!-- ═══ WELLNESS TAB ═══ -->
+    <div class="tab-content" id="tab-wellness">
+      <div id="wellness-content"></div>
     </div>
 
     <!-- ═══ MILESTONES TAB ═══ -->
@@ -967,6 +973,8 @@ const CUTOFF_NEXT_DATE = '2026-07-06';           // first day intervals.icu is a
 const ICU_ATH_KEY  = 'icu_athlete_id';
 const ICU_KEY_KEY  = 'icu_api_key';
 const ICU_ACTS_KEY = 'icu_acts_v1';              // JSON array of intervals.icu-sourced activities (>= cutoff)
+const WELLNESS_KEY = 'icu_wellness_v1';          // JSON array of daily wellness records
+let currentIcuAthleteId = null, currentIcuApiKey = null; // set once connected, reused by the Wellness tab
 
 let archiveActivities = null; // lazy-loaded, cached in memory for the session
 
@@ -1046,6 +1054,8 @@ async function connectIntervals(){
 }
 
 async function fetchAllIntervals(athleteId, apiKey){
+  currentIcuAthleteId = athleteId;
+  currentIcuApiKey = apiKey;
   const tc = document.getElementById('top-center');
   const pf = document.getElementById('progress-fill');
   const lt = document.getElementById('loading-text');
@@ -2709,6 +2719,165 @@ function renderTraining(){
 }
 
 // ══════════════════════════════════════════
+// WELLNESS TAB — daily metrics from intervals.icu's /wellness endpoint
+// (resting HR, sleep, steps, VO2max, SpO2, HRV, etc. — sourced from Garmin).
+// Unlike activities, this data can be sparse/null on many days depending
+// on what your watch tracks and whether historical backfill has run.
+// ══════════════════════════════════════════
+let wellnessData = null; // lazy-loaded + cached
+
+function loadWellnessCache(){ try{ return JSON.parse(localStorage.getItem(WELLNESS_KEY)||'[]'); }catch(e){ return []; } }
+function saveWellnessCache(data){ try{ localStorage.setItem(WELLNESS_KEY, JSON.stringify(data)); }catch(e){} }
+
+async function fetchWellness(force){
+  if(wellnessData && !force) return wellnessData;
+  const cached = loadWellnessCache();
+  if(cached.length && !force){ wellnessData = cached; return wellnessData; }
+
+  if(!currentIcuAthleteId || !currentIcuApiKey){
+    wellnessData = cached; // no creds available (e.g. Strava-only legacy session) — just use whatever's cached
+    return wellnessData;
+  }
+
+  const oldest = '2012-01-01'; // ask for everything; intervals.icu returns whatever it actually has
+  const newest = new Date().toISOString().slice(0,10);
+  const authHeader = 'Basic ' + btoa('API_KEY:' + currentIcuApiKey);
+  const url = `https://intervals.icu/api/v1/athlete/${encodeURIComponent(currentIcuAthleteId)}/wellness?oldest=${oldest}&newest=${newest}`;
+
+  try{
+    const r = await fetch(url, {headers:{'Authorization': authHeader}});
+    if(r.ok){
+      const body = await r.json();
+      if(Array.isArray(body)){
+        wellnessData = body;
+        saveWellnessCache(body);
+        return wellnessData;
+      }
+    }
+  }catch(e){ /* fall through to cache */ }
+
+  wellnessData = cached;
+  return wellnessData;
+}
+
+// Generic small line/bar chart for a single wellness metric over time.
+// data: array of {date: 'YYYY-MM-DD', value: number|null}
+function wellnessSparkline(data, {color='#2563eb', type='line', unit='', decimals=0} = {}){
+  const W=800, H=90;
+  const points = data.map((d,i)=>({...d, i}));
+  const known = points.filter(p=>p.value!=null && !isNaN(p.value));
+  if(!known.length){
+    return `<div style="height:${H}px;display:flex;align-items:center;justify-content:center;color:var(--text4);font-size:12px">No data yet</div>`;
+  }
+  const vals = known.map(p=>p.value);
+  const minV = Math.min(...vals), maxV = Math.max(...vals);
+  const pad = (maxV-minV)*0.15 || 1;
+  const lo = minV-pad, hi = maxV+pad;
+  const scaleY = v => H-6-((v-lo)/(hi-lo||1))*(H-12);
+  const scaleX = i => (i/(Math.max(points.length-1,1)))*(W-4)+2;
+
+  let svgBody = '';
+  if(type==='bar'){
+    svgBody = known.map(p=>{
+      const x=scaleX(p.i), y=scaleY(p.value), barH = H-6-y+6;
+      return `<rect x="${(x-2.5).toFixed(1)}" y="${y.toFixed(1)}" width="5" height="${Math.max(1,barH).toFixed(1)}" rx="1" fill="${color}" fill-opacity="0.75"/>`;
+    }).join('');
+  } else {
+    // Line chart: draw segments only between consecutive known points (real gaps stay visually blank)
+    let pathParts = [];
+    let prev = null;
+    known.forEach(p=>{
+      const x=scaleX(p.i), y=scaleY(p.value);
+      if(prev===null || p.i - prev.i > 1){
+        pathParts.push(`M${x.toFixed(1)},${y.toFixed(1)}`);
+      } else {
+        pathParts.push(`L${x.toFixed(1)},${y.toFixed(1)}`);
+      }
+      prev = p;
+    });
+    const dots = known.length <= 60 ? known.map(p=>{
+      const x=scaleX(p.i), y=scaleY(p.value);
+      return `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="2.2" fill="${color}"/>`;
+    }).join('') : ''; // skip dots when too dense
+    svgBody = `<path d="${pathParts.join(' ')}" stroke="${color}" stroke-width="2" fill="none"/>${dots}`;
+  }
+
+  const latest = known[known.length-1];
+  const latestLabel = latest.value.toFixed(decimals) + (unit?(' '+unit):'');
+
+  return `
+    <div style="position:relative">
+      <svg viewBox="0 0 ${W} ${H}" style="width:100%;height:${H}px" preserveAspectRatio="none">${svgBody}</svg>
+      <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--text4);margin-top:2px">
+        <span>${points[0].date}</span>
+        <span style="color:${color};font-weight:600">latest: ${latestLabel}</span>
+        <span>${points[points.length-1].date}</span>
+      </div>
+    </div>`;
+}
+
+function wellnessMetricCard(title, subtitle, chartHtml, coverage){
+  return `
+    <div class="chart-card">
+      <div class="chart-header">
+        <div class="chart-title">${title}</div>
+        <div class="chart-meta">${subtitle}${coverage!=null?` · ${coverage} days with data`:''}</div>
+      </div>
+      ${chartHtml}
+    </div>`;
+}
+
+async function renderWellness(){
+  const el = document.getElementById('wellness-content');
+  el.innerHTML = `<div style="padding:40px;text-align:center;color:var(--text4)">Loading wellness data…</div>`;
+
+  const raw = await fetchWellness(false);
+  if(!raw || !raw.length){
+    el.innerHTML = `
+      <div class="section-title">Wellness</div>
+      <div style="padding:40px;text-align:center;color:var(--text4)">
+        No wellness data available yet.<br>
+        <span style="font-size:12px">Make sure Garmin is connected in intervals.icu — daily metrics (resting HR, sleep, steps) sync separately from activities and may take a little longer to backfill.</span>
+      </div>`;
+    return;
+  }
+
+  const sorted = [...raw].sort((a,b)=> a.id < b.id ? -1 : 1);
+  const last180 = sorted.slice(-180);
+
+  const seriesFor = (field) => last180.map(d=>({date:d.id, value: d[field]==null ? null : Number(d[field])}));
+  const countKnown = (field) => last180.filter(d=>d[field]!=null).length;
+
+  const restingHR = seriesFor('restingHR');
+  const sleepHrs  = last180.map(d=>({date:d.id, value: d.sleepSecs==null ? null : Math.round(d.sleepSecs/3600*10)/10}));
+  const steps     = seriesFor('steps');
+  const vo2max    = seriesFor('vo2max');
+  const spo2      = seriesFor('spO2');
+  const hrv       = seriesFor('hrv');
+
+  el.innerHTML = `
+    <div class="section-title">Wellness</div>
+    <div style="font-size:12px;color:var(--text4);margin:-8px 0 18px">
+      Daily metrics from Garmin, synced via intervals.icu · last 180 days shown
+    </div>
+    <div style="display:grid;grid-template-columns:1fr;gap:16px;max-width:900px">
+      ${wellnessMetricCard('Resting Heart Rate', 'bpm, lower generally trends with fitness',
+          wellnessSparkline(restingHR, {color:'#dc2626', type:'line', unit:'bpm'}), countKnown('restingHR'))}
+      ${wellnessMetricCard('Sleep Duration', 'hours per night',
+          wellnessSparkline(sleepHrs, {color:'#7c3aed', type:'bar', unit:'h', decimals:1}), last180.filter(d=>d.sleepSecs!=null).length)}
+      ${wellnessMetricCard('Steps', 'daily step count',
+          wellnessSparkline(steps, {color:'#059669', type:'bar', unit:'steps'}), countKnown('steps'))}
+      ${wellnessMetricCard('VO2max', 'Garmin estimate — updates infrequently, so expect a sparse trend',
+          wellnessSparkline(vo2max, {color:'#2563eb', type:'line', unit:'', decimals:1}), countKnown('vo2max'))}
+      ${wellnessMetricCard('Blood Oxygen (SpO2)', '% saturation, overnight reading',
+          wellnessSparkline(spo2, {color:'#0891b2', type:'line', unit:'%', decimals:1}), countKnown('spO2'))}
+      ${wellnessMetricCard('Heart Rate Variability', 'ms — needs all-night HRV tracking enabled on your Garmin',
+          wellnessSparkline(hrv, {color:'#ea580c', type:'line', unit:'ms'}), countKnown('hrv'))}
+    </div>
+  `;
+}
+
+// ══════════════════════════════════════════
 function renderTrends(){
   const sportF=document.getElementById('trend-sport').value;
   const group=document.getElementById('trend-group').value;
@@ -3613,6 +3782,7 @@ function switchTab(name,btn){
   if(el) el.classList.add('active');
   if(name==='training')   renderTraining();
   if(name==='trends')     renderTrends();
+  if(name==='wellness')   renderWellness();
   if(name==='activities') { populateActFilters._done || (populateActFilters(), populateActFilters._done=true); filterActivities(); }
   if(name==='milestones') renderMilestones();
   if(name==='gear')       renderGearTimeline();

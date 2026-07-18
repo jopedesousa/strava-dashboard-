@@ -2725,6 +2725,13 @@ function renderTraining(){
 // on what your watch tracks and whether historical backfill has run.
 // ══════════════════════════════════════════
 let wellnessData = null; // lazy-loaded + cached
+let wellnessRangeDays = 180;
+function setWellnessRange(days, btn){
+  wellnessRangeDays = days;
+  document.querySelectorAll('#wellness-range-filter .tbn').forEach(b=>b.classList.remove('active'));
+  btn.classList.add('active');
+  renderWellnessCharts(); // re-render charts only, no re-fetch
+}
 
 function loadWellnessCache(){ try{ return JSON.parse(localStorage.getItem(WELLNESS_KEY)||'[]'); }catch(e){ return []; } }
 function saveWellnessCache(data){ try{ localStorage.setItem(WELLNESS_KEY, JSON.stringify(data)); }catch(e){} }
@@ -2760,9 +2767,10 @@ async function fetchWellness(force){
   return wellnessData;
 }
 
-// Generic small line/bar chart for a single wellness metric over time.
+// Generic small line/bar chart for a single wellness metric over time, with
+// hover tooltips (matches the fitness chart's hover-rect pattern).
 // data: array of {date: 'YYYY-MM-DD', value: number|null}
-function wellnessSparkline(data, {color='#2563eb', type='line', unit='', decimals=0} = {}){
+function wellnessSparkline(data, chartId, {color='#2563eb', type='line', unit='', decimals=0} = {}){
   const W=800, H=90;
   const points = data.map((d,i)=>({...d, i}));
   const known = points.filter(p=>p.value!=null && !isNaN(p.value));
@@ -2783,7 +2791,6 @@ function wellnessSparkline(data, {color='#2563eb', type='line', unit='', decimal
       return `<rect x="${(x-2.5).toFixed(1)}" y="${y.toFixed(1)}" width="5" height="${Math.max(1,barH).toFixed(1)}" rx="1" fill="${color}" fill-opacity="0.75"/>`;
     }).join('');
   } else {
-    // Line chart: draw segments only between consecutive known points (real gaps stay visually blank)
     let pathParts = [];
     let prev = null;
     known.forEach(p=>{
@@ -2798,16 +2805,30 @@ function wellnessSparkline(data, {color='#2563eb', type='line', unit='', decimal
     const dots = known.length <= 60 ? known.map(p=>{
       const x=scaleX(p.i), y=scaleY(p.value);
       return `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="2.2" fill="${color}"/>`;
-    }).join('') : ''; // skip dots when too dense
+    }).join('') : '';
     svgBody = `<path d="${pathParts.join(' ')}" stroke="${color}" stroke-width="2" fill="none"/>${dots}`;
   }
+
+  // Invisible hover targets — one narrow strip per known point, matching the fitness chart pattern
+  const hoverRects = known.map(p=>{
+    const x = scaleX(p.i);
+    return `<rect x="${(x-4).toFixed(1)}" y="0" width="8" height="${H}" fill="transparent" class="wshover"
+      data-date="${p.date}" data-value="${p.value.toFixed(decimals)}"/>`;
+  }).join('');
+  const hoverDots = known.map(p=>{
+    const x=scaleX(p.i), y=scaleY(p.value);
+    return `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="3.5" fill="${color}" class="wsdot" data-date="${p.date}" style="opacity:0;pointer-events:none"/>`;
+  }).join('');
 
   const latest = known[known.length-1];
   const latestLabel = latest.value.toFixed(decimals) + (unit?(' '+unit):'');
 
   return `
     <div style="position:relative">
-      <svg viewBox="0 0 ${W} ${H}" style="width:100%;height:${H}px" preserveAspectRatio="none">${svgBody}</svg>
+      <svg id="${chartId}" viewBox="0 0 ${W} ${H}" style="width:100%;height:${H}px" preserveAspectRatio="none">
+        ${svgBody}${hoverDots}${hoverRects}
+      </svg>
+      <div id="${chartId}-tip" style="position:absolute;pointer-events:none;display:none;background:rgba(0,0,0,.75);color:#fff;font-size:11px;padding:6px 10px;border-radius:6px;white-space:nowrap;top:0;left:0;transform:translate(-50%,-110%)"></div>
       <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--text4);margin-top:2px">
         <span>${points[0].date}</span>
         <span style="color:${color};font-weight:600">latest: ${latestLabel}</span>
@@ -2816,11 +2837,27 @@ function wellnessSparkline(data, {color='#2563eb', type='line', unit='', decimal
     </div>`;
 }
 
+const WELLNESS_TOOLTIPS = {
+  'Resting Heart Rate': 'Your heart rate while fully at rest, usually measured overnight. A gradually declining trend over weeks/months is a solid sign of improving cardiovascular fitness. A sudden spike of 5+ bpm above your normal can be an early warning sign of illness, overtraining, or poor recovery.',
+  'Sleep Duration': 'Total nightly sleep time as tracked by your Garmin. Consistently under ~7 hours can blunt training adaptation and recovery, regardless of how well your training itself is structured.',
+  'Steps': 'Daily step count from your Garmin, including non-training movement (walking, errands, etc). Useful as a rough proxy for overall daily activity, separate from structured workouts.',
+  'VO2max': "Garmin's estimate of your maximal oxygen uptake — a well-established measure of aerobic fitness. It updates infrequently (only after certain qualifying runs/rides), so expect a sparse, step-like trend rather than a smooth daily line.",
+  'Blood Oxygen (SpO2)': "Overnight blood oxygen saturation, as a percentage. Normal is typically 95–100%. Consistently low readings can be worth discussing with a doctor, though single low nights are usually not meaningful on their own.",
+  'Heart Rate Variability': "The variation in time between consecutive heartbeats, measured overnight. Higher HRV generally indicates better recovery and lower stress; a declining trend can signal accumulating fatigue. Requires all-night HRV tracking enabled on your Garmin — many models don't have this on by default.",
+};
+
 function wellnessMetricCard(title, subtitle, chartHtml, coverage){
+  const tip = WELLNESS_TOOLTIPS[title] || '';
   return `
     <div class="chart-card">
       <div class="chart-header">
-        <div class="chart-title">${title}</div>
+        <div style="display:flex;align-items:center;gap:8px">
+          <div class="chart-title">${title}</div>
+          ${tip?`<div class="section-tip-wrap">
+            <span class="section-tip-badge">?</span>
+            <div class="section-tip-box">${tip}</div>
+          </div>`:''}
+        </div>
         <div class="chart-meta">${subtitle}${coverage!=null?` · ${coverage} days with data`:''}</div>
       </div>
       ${chartHtml}
@@ -2842,39 +2879,78 @@ async function renderWellness(){
     return;
   }
 
-  const sorted = [...raw].sort((a,b)=> a.id < b.id ? -1 : 1);
-  const last180 = sorted.slice(-180);
+  el.innerHTML = `
+    <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:4px">
+      <div class="section-title" style="margin-bottom:0">Wellness</div>
+      <div class="time-filter" id="wellness-range-filter" style="margin-bottom:0">
+        <button class="tbn" onclick="setWellnessRange(30,this)">30D</button>
+        <button class="tbn" onclick="setWellnessRange(90,this)">3M</button>
+        <button class="tbn active" onclick="setWellnessRange(180,this)">6M</button>
+        <button class="tbn" onclick="setWellnessRange(365,this)">1Y</button>
+        <button class="tbn" onclick="setWellnessRange(99999,this)">All</button>
+      </div>
+    </div>
+    <div style="font-size:12px;color:var(--text4);margin:0 0 18px">
+      Daily metrics from Garmin, synced via intervals.icu · hover any chart for exact values
+    </div>
+    <div id="wellness-charts" style="display:grid;grid-template-columns:1fr;gap:16px;max-width:900px"></div>
+  `;
+  renderWellnessCharts();
+}
 
-  const seriesFor = (field) => last180.map(d=>({date:d.id, value: d[field]==null ? null : Number(d[field])}));
-  const countKnown = (field) => last180.filter(d=>d[field]!=null).length;
+function renderWellnessCharts(){
+  const chartsEl = document.getElementById('wellness-charts');
+  if(!chartsEl || !wellnessData) return;
+
+  const sorted = [...wellnessData].sort((a,b)=> a.id < b.id ? -1 : 1);
+  const windowed = wellnessRangeDays >= 99999 ? sorted : sorted.slice(-wellnessRangeDays);
+
+  const seriesFor = (field) => windowed.map(d=>({date:d.id, value: d[field]==null ? null : Number(d[field])}));
+  const countKnown = (field) => windowed.filter(d=>d[field]!=null).length;
 
   const restingHR = seriesFor('restingHR');
-  const sleepHrs  = last180.map(d=>({date:d.id, value: d.sleepSecs==null ? null : Math.round(d.sleepSecs/3600*10)/10}));
+  const sleepHrs  = windowed.map(d=>({date:d.id, value: d.sleepSecs==null ? null : Math.round(d.sleepSecs/3600*10)/10}));
   const steps     = seriesFor('steps');
   const vo2max    = seriesFor('vo2max');
   const spo2      = seriesFor('spO2');
   const hrv       = seriesFor('hrv');
 
-  el.innerHTML = `
-    <div class="section-title">Wellness</div>
-    <div style="font-size:12px;color:var(--text4);margin:-8px 0 18px">
-      Daily metrics from Garmin, synced via intervals.icu · last 180 days shown
-    </div>
-    <div style="display:grid;grid-template-columns:1fr;gap:16px;max-width:900px">
-      ${wellnessMetricCard('Resting Heart Rate', 'bpm, lower generally trends with fitness',
-          wellnessSparkline(restingHR, {color:'#dc2626', type:'line', unit:'bpm'}), countKnown('restingHR'))}
-      ${wellnessMetricCard('Sleep Duration', 'hours per night',
-          wellnessSparkline(sleepHrs, {color:'#7c3aed', type:'bar', unit:'h', decimals:1}), last180.filter(d=>d.sleepSecs!=null).length)}
-      ${wellnessMetricCard('Steps', 'daily step count',
-          wellnessSparkline(steps, {color:'#059669', type:'bar', unit:'steps'}), countKnown('steps'))}
-      ${wellnessMetricCard('VO2max', 'Garmin estimate — updates infrequently, so expect a sparse trend',
-          wellnessSparkline(vo2max, {color:'#2563eb', type:'line', unit:'', decimals:1}), countKnown('vo2max'))}
-      ${wellnessMetricCard('Blood Oxygen (SpO2)', '% saturation, overnight reading',
-          wellnessSparkline(spo2, {color:'#0891b2', type:'line', unit:'%', decimals:1}), countKnown('spO2'))}
-      ${wellnessMetricCard('Heart Rate Variability', 'ms — needs all-night HRV tracking enabled on your Garmin',
-          wellnessSparkline(hrv, {color:'#ea580c', type:'line', unit:'ms'}), countKnown('hrv'))}
-    </div>
+  chartsEl.innerHTML = `
+    ${wellnessMetricCard('Resting Heart Rate', 'bpm, lower generally trends with fitness',
+        wellnessSparkline(restingHR, 'ws-rhr', {color:'#dc2626', type:'line', unit:'bpm'}), countKnown('restingHR'))}
+    ${wellnessMetricCard('Sleep Duration', 'hours per night',
+        wellnessSparkline(sleepHrs, 'ws-sleep', {color:'#7c3aed', type:'bar', unit:'h', decimals:1}), windowed.filter(d=>d.sleepSecs!=null).length)}
+    ${wellnessMetricCard('Steps', 'daily step count',
+        wellnessSparkline(steps, 'ws-steps', {color:'#059669', type:'bar', unit:'steps'}), countKnown('steps'))}
+    ${wellnessMetricCard('VO2max', 'Garmin estimate — updates infrequently, so expect a sparse trend',
+        wellnessSparkline(vo2max, 'ws-vo2', {color:'#2563eb', type:'line', unit:'', decimals:1}), countKnown('vo2max'))}
+    ${wellnessMetricCard('Blood Oxygen (SpO2)', '% saturation, overnight reading',
+        wellnessSparkline(spo2, 'ws-spo2', {color:'#0891b2', type:'line', unit:'%', decimals:1}), countKnown('spO2'))}
+    ${wellnessMetricCard('Heart Rate Variability', 'ms — needs all-night HRV tracking enabled on your Garmin',
+        wellnessSparkline(hrv, 'ws-hrv', {color:'#ea580c', type:'line', unit:'ms'}), countKnown('hrv'))}
   `;
+
+  // Wire up hover tooltips for every chart on the page
+  ['ws-rhr','ws-sleep','ws-steps','ws-vo2','ws-spo2','ws-hrv'].forEach(id=>{
+    const svg = document.getElementById(id);
+    const tip = document.getElementById(id+'-tip');
+    if(!svg || !tip) return;
+    const rects = svg.querySelectorAll('.wshover');
+    const nPts = rects.length;
+    rects.forEach((r,idx)=>{
+      r.addEventListener('mouseenter', function(){
+        const date = this.dataset.date, value = this.dataset.value;
+        svg.querySelectorAll('.wsdot').forEach(d=>{ d.style.opacity = d.dataset.date===date ? '1' : '0'; });
+        tip.style.display = 'block';
+        tip.style.left = (nPts<=1 ? 50 : idx/(nPts-1)*100) + '%';
+        tip.innerHTML = `<b>${date}</b><br>${value}`;
+      });
+      r.addEventListener('mouseleave', ()=>{
+        svg.querySelectorAll('.wsdot').forEach(d=>{ d.style.opacity='0'; });
+        tip.style.display='none';
+      });
+    });
+  });
 }
 
 // ══════════════════════════════════════════

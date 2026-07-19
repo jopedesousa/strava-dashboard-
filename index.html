@@ -1073,10 +1073,19 @@ async function fetchAllIntervals(athleteId, apiKey){
 
   // Determine the date to start fetching from: the day after the newest
   // cached live activity, or CUTOFF_NEXT_DATE if we have no live cache yet.
+  // Re-fetch a trailing window (not just the single most-recent cached day) so
+  // edits made directly in intervals.icu — gear, commute flag, notes — on any
+  // recent activity actually get picked up. Editing further back than this
+  // window still requires a full cache clear.
+  const TRAILING_REFETCH_DAYS = 14;
   let oldest = CUTOFF_NEXT_DATE;
   if(cached.length){
     const newestLocal = cached.reduce((max,a)=> a.start_date_local > max ? a.start_date_local : max, cached[0].start_date_local);
-    oldest = newestLocal.slice(0,10); // re-fetch that day too, in case of same-day updates; de-duped by id below
+    const trailingCutoff = new Date(); trailingCutoff.setDate(trailingCutoff.getDate() - TRAILING_REFETCH_DAYS);
+    const trailingStr = trailingCutoff.toISOString().slice(0,10);
+    // Use whichever is earlier: the trailing window, or the last cached day
+    // (in case the cache itself doesn't go back 14 days yet).
+    oldest = newestLocal.slice(0,10) < trailingStr ? newestLocal.slice(0,10) : trailingStr;
   }
   const today = new Date();
   const newest = today.toISOString().slice(0,10);

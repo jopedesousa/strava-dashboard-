@@ -482,14 +482,13 @@ canvas { max-height: 200px !important; }
     <!-- NAVIGATION TABS -->
     <div class="tabs" style="margin-bottom:0;width:100%;overflow-x:auto">
       <button class="tab active" onclick="switchTab('home',this)">Home</button>
+      <button class="tab" onclick="switchTab('overview',this)">Overview</button>
       <button class="tab" onclick="switchTab('training',this)">Training</button>
+      <button class="tab" onclick="switchTab('wellness',this)">Wellness</button>
       <button class="tab" onclick="switchTab('activities',this)">Activities</button>
       <button class="tab" onclick="switchTab('trends',this)">Trends</button>
-      <button class="tab" onclick="switchTab('wellness',this)">Wellness</button>
       <button class="tab" onclick="switchTab('milestones',this)">Milestones</button>
       <button class="tab" onclick="switchTab('gear',this)">Gear Log</button>
-      <button class="tab" onclick="switchTab('places',this)">Places</button>
-      <button class="tab" onclick="switchTab('explore',this)">Explore</button>
     </div>
     <div style="height:1px;background:var(--border-light);margin-bottom:20px"></div>
 
@@ -505,38 +504,44 @@ canvas { max-height: 200px !important; }
       <!-- YTD -->
       <div style="margin-top:32px" id="home-ytd"></div>
 
-      <!-- OVERVIEW -->
-      <div style="margin-top:32px" id="home-overview">
-        <div style="margin-bottom:16px;display:flex;align-items:center;gap:12px;flex-wrap:wrap">
-          <div class="home-section-title" style="margin-bottom:0">Overview</div>
-          <div class="time-filter" style="margin-bottom:0">
-            <button class="tbn active" onclick="setRange(4,this)">4W</button>
-            <button class="tbn" onclick="setRange(13,this)">3M</button>
-            <button class="tbn" onclick="setRange(26,this)">6M</button>
-            <button class="tbn" onclick="setRange(52,this)">1Y</button>
-            <button class="tbn" onclick="setRange(9999,this)">All</button>
-          </div>
-        </div>
-        <!-- Sport filters -->
-        <div id="sport-filter-chips" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px"></div>
-        <div class="stats-row" id="stats-row"></div>
-        <div class="chart-card">
-          <div class="chart-header"><div class="chart-title">Weekly Volume</div><div class="chart-meta" id="chart-meta"></div></div>
-          <div class="bar-chart" id="bar-chart"></div>
-        </div>
-        <div id="overview-gear" style="margin-top:16px"></div>
-        <!-- All-time stats -->
-        <div id="alltime-stats" style="margin-top:16px"></div>
-        <!-- Music -->
-        <div id="overview-music" style="margin-top:16px"></div>
-        <div style="margin-top:8px"><span id="desc-status-chip" style="display:none;font-size:11px;padding:4px 10px;border-radius:20px;border:1px solid;font-weight:500"></span></div>
-      </div>
-
     </div><!-- end tab-home -->
+
+    <!-- ═══ OVERVIEW TAB ═══ -->
+    <div class="tab-content" id="tab-overview">
+      <div style="margin-bottom:16px;display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+        <div class="home-section-title" style="margin-bottom:0">Overview</div>
+        <div class="time-filter" style="margin-bottom:0">
+          <button class="tbn" onclick="setRange(1,this)">1W</button>
+          <button class="tbn active" onclick="setRange(4,this)">4W</button>
+          <button class="tbn" onclick="setRange(13,this)">3M</button>
+          <button class="tbn" onclick="setRange(26,this)">6M</button>
+          <button class="tbn" onclick="setRange(52,this)">1Y</button>
+          <button class="tbn" onclick="setRange(9999,this)">All</button>
+        </div>
+      </div>
+      <!-- Sport filters -->
+      <div id="sport-filter-chips" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px"></div>
+      <div class="stats-row" id="stats-row"></div>
+      <div class="chart-card">
+        <div class="chart-header"><div class="chart-title">Weekly Volume</div><div class="chart-meta" id="chart-meta"></div></div>
+        <div class="bar-chart" id="bar-chart"></div>
+      </div>
+      <div id="overview-gear" style="margin-top:16px"></div>
+      <!-- All-time stats -->
+      <div id="alltime-stats" style="margin-top:16px"></div>
+      <!-- Music -->
+      <div id="overview-music" style="margin-top:16px"></div>
+      <div style="margin-top:8px"><span id="desc-status-chip" style="display:none;font-size:11px;padding:4px 10px;border-radius:20px;border:1px solid;font-weight:500"></span></div>
+    </div><!-- end tab-overview -->
 
     <!-- ═══ TRAINING TAB ═══ -->
     <div class="tab-content" id="tab-training">
       <div id="training-content"></div>
+    </div>
+
+    <!-- ═══ WELLNESS TAB ═══ -->
+    <div class="tab-content" id="tab-wellness">
+      <div id="wellness-content"></div>
     </div>
 
     <!-- ═══ ACTIVITIES TAB ═══ -->
@@ -578,11 +583,6 @@ canvas { max-height: 200px !important; }
       <div class="trends-grid" id="trends-grid"></div>
     </div>
 
-    <!-- ═══ WELLNESS TAB ═══ -->
-    <div class="tab-content" id="tab-wellness">
-      <div id="wellness-content"></div>
-    </div>
-
     <!-- ═══ MILESTONES TAB ═══ -->
     <div class="tab-content" id="tab-milestones">
       <div class="section-title">Personal Records</div>
@@ -616,60 +616,6 @@ canvas { max-height: 200px !important; }
       <!-- Active keyword pills -->
       <div id="gear-kw-pills" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:16px"></div>
       <div id="gear-timeline-content"></div>
-    </div>
-
-    <!-- ═══ PLACES TAB ═══ -->
-    <div class="tab-content" id="tab-places">
-      <div class="section-title">Where I've Been Active</div>
-      <div style="display:flex;gap:8px;align-items:center;margin-bottom:12px;flex-wrap:wrap">
-        <input class="search-field" id="places-search" placeholder="Filter by country or city…" oninput="renderPlaces()" style="max-width:280px">
-        <span id="places-meta" style="font-size:12px;color:var(--text3)"></span>
-      </div>
-      <div id="osm-legend" style="margin-bottom:8px"></div>
-      <div style="border-radius:12px;overflow:hidden;border:1px solid var(--border-light);margin-bottom:16px">
-        <div id="osm-map" style="width:100%;height:500px"></div>
-      </div>
-      <div class="geo-grid" id="geo-content"></div>
-    </div>
-
-    <!-- ═══ EXPLORE TAB ═══ -->
-    <div class="tab-content" id="tab-explore">
-      <div style="display:flex;align-items:center;gap:16px;margin-bottom:16px;flex-wrap:wrap">
-        <div class="section-title" style="margin-bottom:0">Explore</div>
-        <div style="display:flex;gap:6px" id="explore-filter-chips">
-          <button class="explore-chip active" data-sport="all"    onclick="setExploreFilter('all',this)">All</button>
-          <button class="explore-chip"        data-sport="Ride"   onclick="setExploreFilter('Ride',this)">🚴 Cycling</button>
-          <button class="explore-chip"        data-sport="Run"    onclick="setExploreFilter('Run',this)">🏃 Running</button>
-        </div>
-        <span id="explore-meta" style="font-size:12px;color:var(--text3);margin-left:auto"></span>
-      </div>
-
-      <!-- Heatmap map -->
-      <div class="chart-card" style="padding:0;overflow:hidden;margin-bottom:16px">
-        <div style="padding:14px 16px 0;display:flex;align-items:center;justify-content:space-between">
-          <div class="chart-title">Activity Heatmap</div>
-          <div style="font-size:11px;color:var(--text3)">Density = how often you've been in that area</div>
-        </div>
-        <div id="explore-map" style="width:100%;height:480px"></div>
-      </div>
-
-      <!-- Explored squares game -->
-      <div class="chart-card" style="margin-bottom:16px">
-        <div class="chart-header">
-          <div class="chart-title">Explored Squares</div>
-          <div class="chart-meta">Like Wandrer — how much of your local area have you covered?</div>
-        </div>
-        <div style="display:flex;gap:8px;align-items:center;margin-bottom:12px;flex-wrap:wrap">
-          <label style="font-size:12px;color:var(--text3)">Grid size:</label>
-          <select id="explore-grid-size" onchange="renderExploreSquares()" class="filter-select" style="font-size:12px;padding:4px 8px">
-            <option value="0.01">~1km squares</option>
-            <option value="0.005" selected>~500m squares</option>
-            <option value="0.002">~200m squares</option>
-          </select>
-          <span id="explore-squares-meta" style="font-size:12px;color:var(--text3)"></span>
-        </div>
-        <div id="explore-squares-map" style="width:100%;height:420px;border-radius:8px;overflow:hidden"></div>
-      </div>
     </div>
 
   </div><!-- end .content -->
@@ -1508,7 +1454,7 @@ function renderOverviewYOY(){
     ? `<span style="color:var(--green)">↑${diffActs} more</span>`
     : `<span style="color:var(--red)">↓${Math.abs(diffActs)} fewer</span>`;
 
-  const _yoyEl=document.getElementById('ytd-yoy')||document.getElementById('overview-yoy')||document.getElementById('home-ytd');if(_yoyEl)_yoyEl.innerHTML = `
+  const _yoyEl=document.getElementById('week-yoy');if(_yoyEl)_yoyEl.innerHTML = `
     <div class="chart-card" style="padding:18px">
       <div class="chart-header" style="margin-bottom:12px">
         <div class="chart-title">This period vs one year ago</div>
@@ -1548,6 +1494,14 @@ async function renderWeek(){
     return allActivities.filter(a => { const d=parseLocal(a.start_date_local); return d>=s&&d<e; });
   });
 
+  // "Same time last week" — last week's activities, cut off at the same number
+  // of elapsed days as this week so far (not the full 7-day final total).
+  // e.g. if today is Wednesday (day 3 of this week), compare against Mon-Wed last week.
+  const daysElapsed = Math.floor((today - weekStart)/86400000) + 1;
+  const lastWeekStart = new Date(weekStart); lastWeekStart.setDate(lastWeekStart.getDate() - 7);
+  const lastWeekSameTimeEnd = new Date(lastWeekStart); lastWeekSameTimeEnd.setDate(lastWeekSameTimeEnd.getDate() + daysElapsed);
+  const lastWkSameTime = allActivities.filter(a => { const d=parseLocal(a.start_date_local); return d>=lastWeekStart && d<lastWeekSameTimeEnd; });
+
   const weekDays = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
 
   // Build day-by-day volume for chart (minutes per day)
@@ -1578,16 +1532,15 @@ async function renderWeek(){
   const twDist = thisWeek.reduce((s,a)=>s+a.distance,0)/1000;
   const twTime = thisWeek.reduce((s,a)=>s+a.moving_time,0)/3600;
   const twElev = thisWeek.reduce((s,a)=>s+a.total_elevation_gain,0);
-  const lastWk = prevWeeks[0];
-  const lwDist = lastWk.reduce((s,a)=>s+a.distance,0)/1000;
-  const lwTime = lastWk.reduce((s,a)=>s+a.moving_time,0)/3600;
-  const lwElev = lastWk.reduce((s,a)=>s+a.total_elevation_gain,0);
+  const lwDist = lastWkSameTime.reduce((s,a)=>s+a.distance,0)/1000;
+  const lwTime = lastWkSameTime.reduce((s,a)=>s+a.moving_time,0)/3600;
+  const lwElev = lastWkSameTime.reduce((s,a)=>s+a.total_elevation_gain,0);
   function wkVs(curr,prev,decimals=0){
     if(!prev) return '';
     const diff=curr-prev;
     const sign=diff>=0?'+':'';
     const cls=diff>=0?'color:var(--green)':'color:var(--red)';
-    return `<div style="font-size:11px;${cls};margin-top:3px">${sign}${diff.toFixed(decimals)} vs last wk</div>`;
+    return `<div style="font-size:11px;${cls};margin-top:3px">${sign}${diff.toFixed(decimals)} vs same time last wk</div>`;
   }
 
   // Sport chips
@@ -1639,7 +1592,7 @@ async function renderWeek(){
     <div id="week-insights-loading" class="loading-row" style="margin-bottom:12px"><div class="spinner"></div>Generating weekly digest…</div>
     <div id="week-digest" style="margin-bottom:16px"></div>
     <div class="ytd-grid" style="margin-bottom:16px">
-      <div class="ytd-card"><div class="ytd-label">Activities</div><div class="ytd-val">${thisWeek.length}</div>${wkVs(thisWeek.length,lastWk.length)}</div>
+      <div class="ytd-card"><div class="ytd-label">Activities</div><div class="ytd-val">${thisWeek.length}</div>${wkVs(thisWeek.length,lastWkSameTime.length)}</div>
       <div class="ytd-card"><div class="ytd-label">Distance</div><div class="ytd-val">${twDist.toFixed(1)}<span class="ytd-unit">km</span></div>${wkVs(twDist,lwDist,1)}</div>
       <div class="ytd-card"><div class="ytd-label">Time</div><div class="ytd-val">${twTime.toFixed(1)}<span class="ytd-unit">hrs</span></div>${wkVs(twTime,lwTime,1)}</div>
       <div class="ytd-card"><div class="ytd-label">Elevation</div><div class="ytd-val">${twElev.toFixed(0)}<span class="ytd-unit">m</span></div>${wkVs(twElev,lwElev,0)}</div>
@@ -1657,6 +1610,7 @@ async function renderWeek(){
       <div class="chart-header"><div class="chart-title">Gear This Week</div></div>
       <div id="week-gear-table"></div>
     </div>
+    <div id="week-yoy" style="margin-bottom:16px"></div>
     <div class="insights-grid" id="week-insights" style="margin-top:0;display:none"></div>`;
 
   // Draw chart
@@ -1689,8 +1643,10 @@ async function renderWeek(){
 
   // Gear usage this week
   renderWeekGear(thisWeek);
+  // "This period vs one year ago" — now lives at the end of the This Week block
+  renderOverviewYOY();
   // AI insights for this week
-  renderWeekInsights(thisWeek, prevWeeks);
+  renderWeekInsights(thisWeek, prevWeeks, lastWkSameTime, daysElapsed);
 }
 
 function renderWeekGear(thisWeek){
@@ -1730,12 +1686,14 @@ function renderWeekGear(thisWeek){
   }).join('');
 }
 
-async function renderWeekInsights(thisWeek, prevWeeks){
+async function renderWeekInsights(thisWeek, prevWeeks, lastWkSameTime, daysElapsed){
   const loadEl  = document.getElementById('week-insights-loading');
   const digestEl = document.getElementById('week-digest');
   if(!loadEl||!digestEl) return;
 
-  const prev  = prevWeeks[0]||[];
+  // Use the same-time-last-week slice so a partial current week (e.g. Mon-Wed)
+  // isn't compared against a full 7-day previous week.
+  const prev  = lastWkSameTime || prevWeeks[0] || [];
   const prev2 = prevWeeks[1]||[];
   const thisDist = thisWeek.reduce((s,a)=>s+a.distance,0)/1000;
   const prevDist = prev.reduce((s,a)=>s+a.distance,0)/1000;
@@ -1789,7 +1747,7 @@ Active days: ${activeDays}/7, rest days: ${restDays}.
 Peak training time: ${peakTime}.
 ${avgHR ? `Avg heart rate this week: ${avgHR}bpm${prevAvgHR ? ` (last week: ${prevAvgHR}bpm${avgHR>prevAvgHR+5?' — elevated, possible fatigue':''})` : ''}.` : ''}
 ${bestRun ? `Best run: ${(bestRun.distance/1000).toFixed(1)}km in ${fmtTime(bestRun.moving_time)} (${fmtPace(bestRun.moving_time/(bestRun.distance/1000))}/km)${fastestRunInPeriod?' — fastest in 3 months':''}.` : ''}
-LAST WEEK: ${prev.length} activities, ${prevDist.toFixed(1)}km.
+LAST WEEK (same ${daysElapsed||7} days, for fair comparison): ${prev.length} activities, ${prevDist.toFixed(1)}km.
 2 WEEKS AGO: ${prev2.length} activities, ${(prev2.reduce((s,a)=>s+a.distance,0)/1000).toFixed(1)}km.
 
 Write a single natural-language weekly digest paragraph (3–4 sentences). Be specific and personal. Mention actual numbers. Spot patterns: comment on time-of-day habits, whether elevated HR suggests fatigue, any notable performances, and suggest what to prioritise next. Sound like a knowledgeable friend, not a corporate coach. No bullet points.`;
@@ -1850,7 +1808,6 @@ function renderHomePage(){
   renderWeek();
   renderMonth();
   renderYTD();
-  renderOverviewSection();
 }
 
 function renderOverviewSection(){
@@ -1928,10 +1885,15 @@ function renderStatsRow(acts){
 
 function renderBarChart(acts){
   const w=Math.min(currentWeeks<9999?currentWeeks:26,26);
-  const now=new Date();now.setHours(0,0,0,0);
+  const today=new Date();today.setHours(0,0,0,0);
+  // Align week bins to Monday-Sunday (not a rolling 7-day window ending today)
+  const dow=today.getDay(); // 0=Sun,1=Mon,...
+  const mondayOffset=dow===0?6:dow-1;
+  const thisMonday=new Date(today); thisMonday.setDate(today.getDate()-mondayOffset);
   const weeks=[];
   for(let i=w-1;i>=0;i--){
-    const s=new Date(now-i*7*86400000),e=new Date(s.getTime()+7*86400000);
+    const s=new Date(thisMonday); s.setDate(thisMonday.getDate()-i*7);
+    const e=new Date(s.getTime()+7*86400000);
     const wa=acts.filter(a=>{const d=parseLocal(a.start_date_local);return d>=s&&d<e;});
     const bt={};wa.forEach(a=>{bt[a.sport]=bt[a.sport]||{color:sp(a.sport).color,m:0};bt[a.sport].m+=a.moving_time/60;});
     weeks.push({s,total:wa.reduce((x,a)=>x+a.moving_time/60,0),bt});
@@ -2008,9 +1970,6 @@ function renderYTD(){
       <div class="ytd-card"><div class="ytd-label">Elevation</div><div class="ytd-val">${(e/1000).toFixed(1)}<span class="ytd-unit">km</span></div><div class="ytd-vs">${vs(e,pe)}</div></div>
     </div>
     <div class="sport-chips">${chips}</div>`;
-
-  // Render YOY comparison at bottom of YTD tab
-  renderOverviewYOY();
 }
 
 // ══════════════════════════════════════════
@@ -3255,50 +3214,7 @@ function renderGearTimeline(){
   el.innerHTML = html;
 }
 
-// ══════════════════════════════════════════
-// PLACES
-// ══════════════════════════════════════════
-function renderPlaces(){
-  renderPlacesLists();
-  setTimeout(initPlacesMap, 0);
-}
-
-function renderPlacesLists(){
-  const q=(document.getElementById('places-search')?.value||'').toLowerCase();
-
-  const countryCounts={}, cityCounts={};
-  allActivities.forEach(a=>{
-    const loc=extractLocation(a);
-    if(!loc.country&&!loc.city) return;
-    if(q&&![(loc.country||''),(loc.city||'')].join(' ').toLowerCase().includes(q)) return;
-    if(loc.country) countryCounts[loc.country]=(countryCounts[loc.country]||0)+1;
-    if(loc.city)    cityCounts[loc.city]=(cityCounts[loc.city]||0)+1;
-  });
-
-  const withCoords = allActivities.filter(a=>a.start_latlng&&a.start_latlng[0]).length;
-  const countries  = Object.entries(countryCounts).sort((a,b)=>b[1]-a[1]);
-  const cities     = Object.entries(cityCounts).sort((a,b)=>b[1]-a[1]).slice(0,25);
-
-  document.getElementById('places-meta').textContent =
-    `${countries.length} countries · ${withCoords} activities with GPS`;
-
-  function makeList(items, title){
-    if(!items.length) return `<div class="chart-card"><div class="chart-header"><div class="chart-title">${title}</div></div><p style="color:var(--text3);font-size:13px">No location data found.</p></div>`;
-    const max=items[0][1];
-    return `<div class="chart-card"><div class="chart-header"><div class="chart-title">${title}</div><div class="chart-meta">${items.length} total</div></div>
-      <div class="geo-list">${items.map(([name,count],i)=>`
-        <div class="geo-row"><div class="geo-rank">${i+1}</div><div class="geo-name">${name}</div>
-        <div class="geo-bar-wrap"><div class="geo-bar" style="width:${(count/max*100).toFixed(0)}%"></div></div>
-        <div class="geo-count">${count}</div></div>`).join('')}</div></div>`;
-  }
-  document.getElementById('geo-content').innerHTML =
-    makeList(countries,'Countries') + makeList(cities,'Cities');
-}
-
-// ── Map ──────────────────────────────────────────────────────────────────────
-
-let _osmMap = null;
-
+// ── Sport colour helper (used by Training charts) ──────────────────────────
 function sportColour(sport){
   const MAP={
     'Ride':'#fc4c02','Run':'#2563eb','Racquet':'#d97706',
@@ -3306,284 +3222,6 @@ function sportColour(sport){
     'Swim':'#0284c7','Hike':'#16a34a'
   };
   return MAP[sport]||'#6b7280';
-}
-
-function destroyOSMMap(){
-  if(_osmMap){ try{ _osmMap.remove(); }catch(e){} _osmMap=null; }
-}
-
-function initPlacesMap(){
-  // At this point the tab has display:block so the container has real dimensions
-  if(typeof L === 'undefined') return;
-  destroyOSMMap();
-
-  const mapEl = document.getElementById('osm-map');
-  if(!mapEl) return;
-
-  // Confirm element is actually visible (has dimensions)
-  if(mapEl.offsetWidth === 0){
-    // Fallback: try again next frame
-    requestAnimationFrame(initPlacesMap);
-    return;
-  }
-
-  // Collect valid GPS activities
-  const toPlot = allActivities.filter(a=>{
-    const ll = a.start_latlng;
-    return ll && Array.isArray(ll) && ll.length===2
-      && typeof ll[0]==='number' && typeof ll[1]==='number'
-      && ll[0]!==0 && ll[1]!==0
-      && ll[0]>=-90 && ll[0]<=90
-      && ll[1]>=-180 && ll[1]<=180;
-  });
-
-  // Build legend
-  const seenSports = [...new Set(toPlot.map(a=>a.sport))];
-  const legendEl = document.getElementById('osm-legend');
-  if(legendEl){
-    legendEl.innerHTML = seenSports.length
-      ? `<div style="display:flex;gap:12px;flex-wrap:wrap;font-size:12px;align-items:center;margin-bottom:8px">
-          <span style="color:var(--text3);font-weight:500">Sport:</span>
-          ${seenSports.map(s=>`<span style="display:flex;align-items:center;gap:5px">
-            <span style="width:10px;height:10px;border-radius:50%;background:${sportColour(s)};display:inline-block"></span>
-            ${sp(s).label}
-          </span>`).join('')}
-        </div>`
-      : '';
-  }
-
-  // Create map — tab is display:block at this point so dimensions are correct
-  _osmMap = L.map('osm-map');
-
-  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
-    maxZoom: 19
-  }).addTo(_osmMap);
-
-  if(!toPlot.length){
-    _osmMap.setView([51.505, -0.09], 5);
-    return;
-  }
-
-  const group = L.featureGroup();
-
-  toPlot.forEach(a=>{
-    const [lat,lng] = a.start_latlng;
-    const col = sportColour(a.sport);
-    const dist = a.distance ? (a.distance/1000).toFixed(1)+' km' : '';
-    const dur  = fmtTime(a.moving_time||0);
-    const date = fmtDate(a.start_date_local);
-
-    L.circleMarker([lat,lng], {
-      radius: 6,
-      fillColor: col,
-      color: '#ffffff',
-      weight: 1.5,
-      opacity: 1,
-      fillOpacity: 0.85
-    })
-    .bindPopup(
-      `<div style="font-family:-apple-system,sans-serif;min-width:160px;line-height:1.6">` +
-      `<div style="font-weight:600;font-size:13px">${a.name||'Activity'}</div>` +
-      `<div style="font-size:11px;color:#888;margin-bottom:4px">${date}</div>` +
-      `<span style="background:${col};color:#fff;border-radius:4px;padding:1px 7px;font-size:11px">${sp(a.sport).label}</span>` +
-      (dist ? `<span style="font-size:12px;margin-left:6px">${dist}</span>` : '') +
-      (dur  ? `<span style="font-size:12px;color:#888;margin-left:4px">${dur}</span>`  : '') +
-      `</div>`
-    )
-    .addTo(group);
-  });
-
-  group.addTo(_osmMap);
-
-  try{
-    const b = group.getBounds();
-    if(b.isValid()) _osmMap.fitBounds(b, {padding:[40,40], maxZoom:12});
-    else            _osmMap.setView([51.505,-0.09], 5);
-  }catch(e){
-    _osmMap.setView([51.505,-0.09], 5);
-  }
-}
-
-
-// ══════════════════════════════════════════
-// EXPLORE TAB — Heatmap + Explored Squares
-// ══════════════════════════════════════════
-let _exploreMap = null, _squaresMap = null, _exploreFilter = 'all';
-let _heatLayer = null, _squareLayer = null;
-
-function destroyExploreMaps(){
-  if(_exploreMap){ try{ _exploreMap.remove(); }catch(e){} _exploreMap=null; }
-  if(_squaresMap){ try{ _squaresMap.remove(); }catch(e){} _squaresMap=null; }
-  _heatLayer=null; _squareLayer=null;
-}
-
-function setExploreFilter(sport, btn){
-  _exploreFilter = sport;
-  document.querySelectorAll('.explore-chip').forEach(c=>c.classList.toggle('active', c.dataset.sport===sport));
-  renderExploreHeatmap();
-  renderExploreSquares();
-}
-
-function getExploreActs(){
-  return allActivities.filter(a=>{
-    if(_exploreFilter==='Ride' && a.sport!=='Ride') return false;
-    if(_exploreFilter==='Run'  && a.sport!=='Run')  return false;
-    const ll = a.start_latlng;
-    return ll && Array.isArray(ll) && ll.length===2 && ll[0]!==0 && ll[1]!==0;
-  });
-}
-
-function initExploreTab(){
-  if(typeof L === 'undefined') return;
-  renderExploreHeatmap();
-  renderExploreSquares();
-}
-
-function renderExploreHeatmap(){
-  if(typeof L === 'undefined') return;
-  const mapEl = document.getElementById('explore-map');
-  if(!mapEl) return;
-
-  const acts = getExploreActs();
-  document.getElementById('explore-meta').textContent = `${acts.length} activities with GPS`;
-
-  // Destroy and recreate
-  if(_exploreMap){ try{ _exploreMap.remove(); }catch(e){} _exploreMap=null; }
-
-  if(mapEl.offsetWidth===0){ requestAnimationFrame(renderExploreHeatmap); return; }
-
-  _exploreMap = L.map('explore-map');
-  // Dark tile layer for heatmap contrast
-  L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',{
-    attribution:'© OpenStreetMap contributors, © CARTO', maxZoom:19
-  }).addTo(_exploreMap);
-
-  if(!acts.length){ _exploreMap.setView([51.505,-0.09],11); return; }
-
-  // Build point density grid for a canvas-based heatmap
-  // We'll use Leaflet's built-in L.heatLayer if available, else manual canvas overlay
-  const points = acts.map(a=>[a.start_latlng[0], a.start_latlng[1], 0.8]);
-
-  // Check if leaflet.heat is available (it may not be — we'll use a circle-based approach instead)
-  if(typeof L.heatLayer !== 'undefined'){
-    _heatLayer = L.heatLayer(points, {
-      radius: 25, blur: 20, maxZoom: 15,
-      gradient: {0.2:'#1e40af', 0.4:'#3b82f6', 0.6:'#06b6d4', 0.8:'#10b981', 1.0:'#f59e0b'}
-    }).addTo(_exploreMap);
-  } else {
-    // Fallback: cluster circles with opacity based on density
-    // Build density grid
-    const CELL = 0.008; // ~800m cells
-    const density = {};
-    acts.forEach(a=>{
-      const la = a.start_latlng[0], ln = a.start_latlng[1];
-      const key = `${Math.round(la/CELL)}_${Math.round(ln/CELL)}`;
-      density[key] = (density[key]||0) + 1;
-    });
-    const maxD = Math.max(...Object.values(density), 1);
-    const group = L.featureGroup();
-    Object.entries(density).forEach(([key, count])=>{
-      const [ri, ci] = key.split('_').map(Number);
-      const lat = ri*CELL, lng = ci*CELL;
-      const pct = count/maxD;
-      const r = 6 + pct*14;
-      // Colour: blue→cyan→green→yellow
-      let col;
-      if(pct<0.25)      col='#3b82f6';
-      else if(pct<0.5)  col='#06b6d4';
-      else if(pct<0.75) col='#10b981';
-      else              col='#f59e0b';
-      L.circleMarker([lat,lng],{
-        radius: r, fillColor: col, color:'none',
-        fillOpacity: 0.25 + pct*0.55, weight: 0
-      }).addTo(group);
-    });
-    group.addTo(_exploreMap);
-    try{ const b=group.getBounds(); if(b.isValid()) _exploreMap.fitBounds(b,{padding:[40,40],maxZoom:13}); }catch(e){}
-    return;
-  }
-
-  // Fit to activity bounds
-  try{
-    const lats = acts.map(a=>a.start_latlng[0]);
-    const lngs = acts.map(a=>a.start_latlng[1]);
-    const bounds = L.latLngBounds([[Math.min(...lats),Math.min(...lngs)],[Math.max(...lats),Math.max(...lngs)]]);
-    if(bounds.isValid()) _exploreMap.fitBounds(bounds,{padding:[40,40],maxZoom:13});
-  }catch(e){ _exploreMap.setView([51.505,-0.09],11); }
-}
-
-function renderExploreSquares(){
-  if(typeof L === 'undefined') return;
-  const mapEl = document.getElementById('explore-squares-map');
-  if(!mapEl) return;
-  if(mapEl.offsetWidth===0){ requestAnimationFrame(renderExploreSquares); return; }
-
-  const acts = getExploreActs();
-  const cellSize = parseFloat(document.getElementById('explore-grid-size')?.value || '0.005');
-
-  // Build set of visited grid squares from GPS start points
-  const visited = new Map(); // key -> count
-  acts.forEach(a=>{
-    const la = a.start_latlng[0], ln = a.start_latlng[1];
-    const ri = Math.floor(la/cellSize);
-    const ci = Math.floor(ln/cellSize);
-    const key = `${ri}_${ci}`;
-    visited.set(key, (visited.get(key)||0)+1);
-  });
-
-  const totalSquares = visited.size;
-  const metaEl = document.getElementById('explore-squares-meta');
-  if(metaEl) metaEl.textContent = `${totalSquares} unique squares explored`;
-
-  // Destroy and recreate
-  if(_squaresMap){ try{ _squaresMap.remove(); }catch(e){} _squaresMap=null; }
-
-  _squaresMap = L.map('explore-squares-map');
-  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{
-    attribution:'© OpenStreetMap contributors', maxZoom:19
-  }).addTo(_squaresMap);
-
-  if(!visited.size){ _squaresMap.setView([51.505,-0.09],12); return; }
-
-  const maxCount = Math.max(...visited.values(), 1);
-  const group = L.featureGroup();
-
-  visited.forEach((count, key)=>{
-    const [ri, ci] = key.split('_').map(Number);
-    const s = L.latLng(ri*cellSize, ci*cellSize);
-    const n = L.latLng((ri+1)*cellSize, (ci+1)*cellSize);
-    const pct = count/maxCount;
-    // Orange for cycling, green for running, blue for all
-    let baseCol;
-    if(_exploreFilter==='Ride') baseCol = [252,76,2];
-    else if(_exploreFilter==='Run') baseCol = [52,199,89];
-    else baseCol = [37,99,235];
-    const alpha = 0.2 + pct*0.65;
-    const fillCol = `rgba(${baseCol[0]},${baseCol[1]},${baseCol[2]},${alpha.toFixed(2)})`;
-    const strokeCol = `rgba(${baseCol[0]},${baseCol[1]},${baseCol[2]},0.5)`;
-
-    L.rectangle([s,n],{
-      fillColor: fillCol, color: strokeCol,
-      weight: 0.5, fillOpacity: 1
-    })
-    .bindTooltip(`${count} activit${count===1?'y':'ies'} started here`, {sticky:true, className:'explore-tip'})
-    .addTo(group);
-  });
-
-  group.addTo(_squaresMap);
-
-  // Find max-square cluster for a "home territory" stat
-  const sorted = [...visited.entries()].sort((a,b)=>b[1]-a[1]);
-  const [topKey, topCount] = sorted[0]||['',0];
-  if(metaEl && topCount>1){
-    metaEl.textContent = `${totalSquares} unique squares · most visited: ${topCount}×`;
-  }
-
-  try{
-    const b = group.getBounds();
-    if(b.isValid()) _squaresMap.fitBounds(b,{padding:[32,32],maxZoom:14});
-  }catch(e){}
 }
 
 // ══════════════════════════════════════════
@@ -3848,9 +3486,6 @@ function renderMonth(yr, mo){
 }
 
 function switchTab(name,btn){
-  // Destroy maps when leaving their tabs
-  if(name !== 'places')  destroyOSMMap();
-  if(name !== 'explore') destroyExploreMaps();
   document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
   document.querySelectorAll('.tab-content').forEach(t=>t.classList.remove('active'));
   btn.classList.add('active');
@@ -3862,8 +3497,7 @@ function switchTab(name,btn){
   if(name==='activities') { populateActFilters._done || (populateActFilters(), populateActFilters._done=true); filterActivities(); }
   if(name==='milestones') renderMilestones();
   if(name==='gear')       renderGearTimeline();
-  if(name==='places')     { renderPlacesLists(); setTimeout(initPlacesMap, 0); }
-  if(name==='explore')    setTimeout(initExploreTab, 0);
+  if(name==='overview')   renderOverviewSection();
   if(name==='home')       renderHomePage();
 }
 

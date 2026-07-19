@@ -658,18 +658,54 @@ function classify(a){
   if(['Swim','OpenWaterSwim'].includes(t)) return 'Swim';
   return 'Other';
 }
+// Persistent alias→canonical map so the same physical bike/shoe — one entry
+// synthesized from the Strava archive (id like 'archive_trek'), one native
+// to intervals.icu (id like 'b14287920') — resolves to a single gear entry
+// whenever the names match. Populated by dedupeGearMap() and kept across
+// calls since the archive's synthesized ids are recomputed fresh each time
+// but the alias is only ever removed from gearMap once.
+let gearIdRedirect = {};
+
+function dedupeGearMap(){
+  const byName = {};
+  Object.entries(gearMap).forEach(([id,g])=>{
+    const key = (g.name||'').trim().toLowerCase();
+    if(!key) return;
+    (byName[key] = byName[key]||[]).push([id,g]);
+  });
+  Object.values(byName).forEach(group=>{
+    if(group.length<2) return;
+    // Prefer a native intervals.icu id over a synthesized 'archive_' one as
+    // the canonical id — it's the one live (and future) activities use.
+    group.sort((a,b)=>(a[0].startsWith('archive_')?1:0)-(b[0].startsWith('archive_')?1:0));
+    const [canonId, canonG] = group[0];
+    const mergedDist = group.reduce((s,[,g])=>s+(g.distance||0),0);
+    gearMap[canonId] = {name: canonG.name, distance: mergedDist, type: canonG.type};
+    group.forEach(([id])=>{
+      if(id===canonId) return;
+      gearIdRedirect[id] = canonId;
+      delete gearMap[id];
+    });
+  });
+}
+
 function norm(acts){
-  return acts.map(a=>({
-    ...a,
-    sport: classify(a),
-    commute: a.commute===true || a.type==='Transportation',
-    // intervals.icu returns gear as a nested object ({"gear":{"id":"b1234",...}})
-    // rather than a flat gear_id field like the archive/Strava format uses.
-    // Flatten it here so every downstream feature (Gear Log, Gear This Week,
-    // Overview Gear Usage, Activities gear filter) keeps working off a.gear_id
-    // unchanged, regardless of which source the activity came from.
-    gear_id: a.gear_id || (a.gear && a.gear.id) || null
-  }));
+  dedupeGearMap();
+  return acts.map(a=>{
+    let gid = a.gear_id || (a.gear && a.gear.id) || null;
+    if(gid && gearIdRedirect[gid]) gid = gearIdRedirect[gid];
+    return {
+      ...a,
+      sport: classify(a),
+      commute: a.commute===true || a.type==='Transportation',
+      // intervals.icu returns gear as a nested object ({"gear":{"id":"b1234",...}})
+      // rather than a flat gear_id field like the archive/Strava format uses.
+      // Flatten it here so every downstream feature (Gear Log, Gear This Week,
+      // Overview Gear Usage, Activities gear filter) keeps working off a.gear_id
+      // unchanged, regardless of which source the activity came from.
+      gear_id: gid
+    };
+  });
 }
 
 // ══════════════════════════════════════════

@@ -662,7 +662,13 @@ function norm(acts){
   return acts.map(a=>({
     ...a,
     sport: classify(a),
-    commute: a.commute===true || a.type==='Transportation'
+    commute: a.commute===true || a.type==='Transportation',
+    // intervals.icu returns gear as a nested object ({"gear":{"id":"b1234",...}})
+    // rather than a flat gear_id field like the archive/Strava format uses.
+    // Flatten it here so every downstream feature (Gear Log, Gear This Week,
+    // Overview Gear Usage, Activities gear filter) keeps working off a.gear_id
+    // unchanged, regardless of which source the activity came from.
+    gear_id: a.gear_id || (a.gear && a.gear.id) || null
   }));
 }
 

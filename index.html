@@ -1003,7 +1003,7 @@ async function fetchIcuGear(athleteId, apiKey){
     if(!Array.isArray(body)) return false;
     const fresh = {};
     body.forEach(g=>{
-      if(!g.id) return;
+      if(!g.id || g.component) return;
       const typeRaw = (g.type||'').toLowerCase();
       const isBike = typeRaw.includes('bike') || typeRaw.includes('ride') || g.id.startsWith('b');
       fresh[g.id] = {name: g.name || g.nickname || 'Gear', distance: g.distance || 0, type: isBike ? 'bike' : 'shoes'};

@@ -994,13 +994,23 @@ async function mergeAndRender(){
 // field, so this is what makes "Gear This Week" / "Gear Usage" work for
 // live (post-cutoff) activities. Cached locally so it's available offline
 // and doesn't need to be re-fetched on every load.
+let _icuGearSyncStatus = null; // {ok, count, reason} — for on-page diagnostics
+
 async function fetchIcuGear(athleteId, apiKey){
   try{
     const authHeader = 'Basic ' + btoa('API_KEY:' + apiKey);
     const r = await fetch(`https://intervals.icu/api/v1/athlete/${encodeURIComponent(athleteId)}/gear`, {headers:{'Authorization': authHeader}});
-    if(!r.ok) return false;
+    if(!r.ok){
+      _icuGearSyncStatus = {ok:false, count:0, reason:`HTTP ${r.status}`};
+      console.warn('fetchIcuGear: request failed', r.status, r.statusText);
+      return false;
+    }
     const body = await r.json();
-    if(!Array.isArray(body)) return false;
+    if(!Array.isArray(body)){
+      _icuGearSyncStatus = {ok:false, count:0, reason:'response was not an array'};
+      console.warn('fetchIcuGear: unexpected response shape', body);
+      return false;
+    }
     const fresh = {};
     body.forEach(g=>{
       if(!g.id || g.component) return;
@@ -1008,11 +1018,18 @@ async function fetchIcuGear(athleteId, apiKey){
       const isBike = typeRaw.includes('bike') || typeRaw.includes('ride') || g.id.startsWith('b');
       fresh[g.id] = {name: g.name || g.nickname || 'Gear', distance: g.distance || 0, type: isBike ? 'bike' : 'shoes'};
     });
-    if(!Object.keys(fresh).length) return false;
+    if(!Object.keys(fresh).length){
+      _icuGearSyncStatus = {ok:true, count:0, reason:'gear list was empty (all components, or no gear configured)'};
+      return false;
+    }
     Object.assign(gearMap, fresh);
     saveIcuGearCache(Object.assign(loadIcuGearCache(), fresh));
+    _icuGearSyncStatus = {ok:true, count:Object.keys(fresh).length, reason:null};
+    console.log(`fetchIcuGear: synced ${Object.keys(fresh).length} gear items`, fresh);
     return true;
   }catch(e){
+    _icuGearSyncStatus = {ok:false, count:0, reason:e.message};
+    console.warn('fetchIcuGear: network/parse error', e);
     return false;
   }
 }
@@ -1117,9 +1134,14 @@ async function fetchAllIntervals(athleteId, apiKey){
 
   pf.style.width = '100%';
   const addedCount = newActs.filter(a=>!cachedIds.has(a.id)).length;
+  const gearNote = _icuGearSyncStatus
+    ? (_icuGearSyncStatus.ok
+        ? (_icuGearSyncStatus.count ? ` · ${_icuGearSyncStatus.count} gear synced` : ` · gear sync returned nothing (${_icuGearSyncStatus.reason})`)
+        : ` · gear sync failed (${_icuGearSyncStatus.reason})`)
+    : '';
   lt.textContent = syncFailed
-    ? `⚠ ${allActivities.length} activities (sync failed — retry later)`
-    : `✓ ${allActivities.length} activities (${addedCount} new from intervals.icu)`;
+    ? `⚠ ${allActivities.length} activities (sync failed — retry later)${gearNote}`
+    : `✓ ${allActivities.length} activities (${addedCount} new from intervals.icu)${gearNote}`;
   document.getElementById('sync-time').textContent = new Date().toLocaleTimeString();
   setTimeout(()=>{ tc.style.display='none'; }, syncFailed ? 6000 : 2000);
 }
@@ -1697,8 +1719,13 @@ function renderWeekGear(thisWeek){
   const el = document.getElementById('week-gear-table');
   const wrap = document.getElementById('week-gear-wrap');
   if(!el) return;
-  if(!Object.keys(gearMap).length){ wrap.style.display='none'; return; }
+  if(!Object.keys(gearMap).length){
+    wrap.style.display='';
+    el.innerHTML = `<p style="color:var(--text3);font-size:13px;margin:0">No gear synced from intervals.icu yet.</p>`;
+    return;
+  }
   const used={};
+  const untaggedCount = thisWeek.filter(a=>!a.gear_id).length;
   thisWeek.forEach(a=>{
     if(!a.gear_id||!gearMap[a.gear_id]) return;
     if(!used[a.gear_id]) used[a.gear_id]={dist:0,count:0,time:0};
@@ -1706,8 +1733,13 @@ function renderWeekGear(thisWeek){
     used[a.gear_id].count += 1;
     used[a.gear_id].time  += a.moving_time;
   });
-  if(!Object.keys(used).length){ wrap.style.display='none'; return; }
   wrap.style.display='';
+  if(!Object.keys(used).length){
+    el.innerHTML = thisWeek.length
+      ? `<p style="color:var(--text3);font-size:13px;margin:0">No gear tagged on this week's ${thisWeek.length} activit${thisWeek.length===1?'y':'ies'} yet${untaggedCount?` (${untaggedCount} untagged)`:''} — assign gear per-activity in intervals.icu.</p>`
+      : `<p style="color:var(--text3);font-size:13px;margin:0">No activities yet this week.</p>`;
+    return;
+  }
   const maxDist = Math.max(...Object.values(used).map(v=>v.dist),1);
   el.innerHTML = Object.entries(used).sort((a,b)=>b[1].dist-a[1].dist).map(([id,v])=>{
     const g=gearMap[id];
@@ -1889,7 +1921,11 @@ function renderOverview(){const a=getFiltered();renderStatsRow(a);renderBarChart
 function renderOverviewGear(){
   const el=document.getElementById('overview-gear');
   if(!el) return;
-  if(!Object.keys(gearMap).length){el.innerHTML='';return;}
+  if(!Object.keys(gearMap).length){
+    el.innerHTML = `<div class="chart-card"><div class="chart-header"><div class="chart-title">Gear Usage</div></div>
+      <p style="color:var(--text3);font-size:13px;margin:0">No gear synced from intervals.icu yet.</p></div>`;
+    return;
+  }
   const acts=getFiltered();
   const gearUsed={};
   acts.forEach(a=>{if(a.gear_id&&gearMap[a.gear_id])gearUsed[a.gear_id]=(gearUsed[a.gear_id]||0)+a.distance;});
@@ -1907,7 +1943,11 @@ function renderOverviewGear(){
       <span style="font-size:12px;color:var(--text3);width:55px;text-align:right">${dist.toFixed(0)} km</span>
     </div>`;
   }).filter(Boolean).join('');
-  if(!rows){el.innerHTML='';return;}
+  if(!rows){
+    el.innerHTML = `<div class="chart-card"><div class="chart-header"><div class="chart-title">Gear Usage</div></div>
+      <p style="color:var(--text3);font-size:13px;margin:0">No gear tagged on activities in this period yet.</p></div>`;
+    return;
+  }
   el.innerHTML=`<div class="chart-card">
     <div class="chart-header"><div class="chart-title">Gear Usage</div><div class="chart-meta">in selected period</div></div>
     ${rows}

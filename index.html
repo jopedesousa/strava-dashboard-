@@ -919,6 +919,7 @@ const CUTOFF_NEXT_DATE = '2026-07-06';           // first day intervals.icu is a
 const ICU_ATH_KEY  = 'icu_athlete_id';
 const ICU_KEY_KEY  = 'icu_api_key';
 const ICU_ACTS_KEY = 'icu_acts_v1';              // JSON array of intervals.icu-sourced activities (>= cutoff)
+const ICU_GEAR_KEY = 'icu_gear_v1';              // {id: {name,distance,type}} — gear configured in intervals.icu
 const WELLNESS_KEY = 'icu_wellness_v1';          // JSON array of daily wellness records
 let currentIcuAthleteId = null, currentIcuApiKey = null; // set once connected, reused by the Wellness tab
 
@@ -926,6 +927,8 @@ let archiveActivities = null; // lazy-loaded, cached in memory for the session
 
 function loadIcuActsCache(){ try{ return JSON.parse(localStorage.getItem(ICU_ACTS_KEY)||'[]'); }catch(e){ return []; } }
 function saveIcuActsCache(acts){ try{ localStorage.setItem(ICU_ACTS_KEY, JSON.stringify(acts)); }catch(e){} }
+function loadIcuGearCache(){ try{ return JSON.parse(localStorage.getItem(ICU_GEAR_KEY)||'{}'); }catch(e){ return {}; } }
+function saveIcuGearCache(obj){ try{ localStorage.setItem(ICU_GEAR_KEY, JSON.stringify(obj)); }catch(e){} }
 
 // Fetch the static historical archive (once per session). Returns [] on
 // any failure (e.g. running from file:// where fetch of a local file can
@@ -966,6 +969,12 @@ async function mergeAndRender(){
   const archiveFiltered = archive.filter(a => a.start_date_local < cutoffBoundary);
   const live = loadIcuActsCache();
 
+  // Merge any cached intervals.icu gear (fetched previously) so gear_id on
+  // live activities resolves to a name/type — same mechanism the archive
+  // uses for its synthesized 'archive_*' ids, just keyed on intervals.icu's
+  // own gear ids so it matches a.gear_id on live activities directly.
+  Object.assign(gearMap, loadIcuGearCache());
+
   const seen = new Set();
   const combined = [];
   [...archiveFiltered, ...live].forEach(a=>{
@@ -977,6 +986,35 @@ async function mergeAndRender(){
 
   allActivities = norm(combined);
   renderAll();
+}
+
+// Fetch the athlete's gear list from intervals.icu (bikes + shoes configured
+// in their account) and merge it into gearMap, keyed on intervals.icu's own
+// gear id — the same id intervals.icu stamps onto each activity's gear_id
+// field, so this is what makes "Gear This Week" / "Gear Usage" work for
+// live (post-cutoff) activities. Cached locally so it's available offline
+// and doesn't need to be re-fetched on every load.
+async function fetchIcuGear(athleteId, apiKey){
+  try{
+    const authHeader = 'Basic ' + btoa('API_KEY:' + apiKey);
+    const r = await fetch(`https://intervals.icu/api/v1/athlete/${encodeURIComponent(athleteId)}/gear`, {headers:{'Authorization': authHeader}});
+    if(!r.ok) return false;
+    const body = await r.json();
+    if(!Array.isArray(body)) return false;
+    const fresh = {};
+    body.forEach(g=>{
+      if(!g.id) return;
+      const typeRaw = (g.type||'').toLowerCase();
+      const isBike = typeRaw.includes('bike') || typeRaw.includes('ride') || g.id.startsWith('b');
+      fresh[g.id] = {name: g.name || g.nickname || 'Gear', distance: g.distance || 0, type: isBike ? 'bike' : 'shoes'};
+    });
+    if(!Object.keys(fresh).length) return false;
+    Object.assign(gearMap, fresh);
+    saveIcuGearCache(Object.assign(loadIcuGearCache(), fresh));
+    return true;
+  }catch(e){
+    return false;
+  }
 }
 
 async function connectIntervals(){
@@ -1068,6 +1106,12 @@ async function fetchAllIntervals(athleteId, apiKey){
   // Merge new + cached by id (new wins on conflict, e.g. same-day re-fetch)
   const merged = [...cached.filter(a=>!newActs.some(n=>n.id===a.id)), ...newActs];
   saveIcuActsCache(merged);
+
+  // Refresh the intervals.icu gear list too, so gear_id on live activities
+  // resolves to a name (needed for "Gear This Week" / "Gear Usage" to show
+  // anything in periods that only contain post-cutoff, intervals.icu-sourced
+  // activities — e.g. the 1W filter or the current week).
+  await fetchIcuGear(athleteId, apiKey);
 
   await mergeAndRender();
 
